@@ -1,0 +1,8 @@
+# Python / Entorno Virtual
+venv/
+__pycache__/
+*.pyc
+
+# Archivos de Credenciales
+.env
+serviceAccountKey.json
