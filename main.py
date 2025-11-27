@@ -7,7 +7,10 @@ import os
 from dotenv import load_dotenv
 from database import save_user_token
 from pydantic import BaseModel
-from chat_logic import generate_response
+from chat_logic import generate_response_structure
+from database import create_new_conversation, add_message_to_conversation, get_conversation_history, save_feedback, get_all_conversation_summaries, delete_conversation, delete_user_session, delete_all_conversations,add_summary_to_conversation, get_summary_context
+from typing import Optional
+from spotify_service import search_spotify_item
 
 
 load_dotenv()
@@ -17,7 +20,64 @@ app = FastAPI(title="Asistente Musical IA API")
 class ChatRequest(BaseModel):
     message: str
     user_id: str
+    conversation_id: Optional[str] = None
 
+class newChatRequest(BaseModel):
+    user_id: str
+
+@app.post("/new_chat")
+def new_chat_endpoint(request: newChatRequest):
+    conv_id = create_new_conversation(request.user_id)
+    return {"conversation_id": conv_id}
+
+@app.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    current_conv_id = request.conversation_id
+    if not current_conv_id:
+        current_conv_id = create_new_conversation(request.user_id)
+
+    # Guardar mensaje del usuario 
+    add_message_to_conversation(request.user_id, current_conv_id, 'user', request.message)
+    
+    #  Obtener contexto resumido
+    summary_context = get_summary_context(request.user_id, current_conv_id)
+    
+    #  Generar estructura con IA
+    ai_data = await generate_response_structure(request.message, request.user_id, summary_context)
+    
+    final_response_text = ai_data['conversational_response']
+    spotify_info = None
+    #  Lógica de Spotify Link
+    if ai_data['recommendation_type'] != 'info' and ai_data['recommendation_query']:
+        search_result = search_spotify_item(ai_data['recommendation_query'], ai_data['recommendation_type'])
+        
+        if search_result:
+            spotify_info = {
+                "url": search_result['url'],
+                "type": ai_data['recommendation_type'],
+                "name": ai_data['recommendation_query'],
+                "image": search_result.get('image')
+            }
+        else:
+            # Fallback natural 
+            final_response_text += f"\n\n(Nota: No encontré el enlace directo en Spotify para '{ai_data['recommendation_query']}', pero vale la pena buscarlo en la web)."
+
+    #  Guardar resumen en base de datos 
+    add_summary_to_conversation(request.user_id, current_conv_id, ai_data['history_summary'])
+
+    #  Guardar mensaje del bot completo 
+    add_message_to_conversation(request.user_id, current_conv_id, 'bot', final_response_text)
+
+    return {
+        "response": final_response_text,
+        "conversation_id": current_conv_id,
+        "spotify_data": spotify_info
+    }
+
+@app.get("/history/{user_id}/{conversation_id}")
+def history_endpoint(user_id: str, conversation_id: str):
+    messages = get_conversation_history(user_id, conversation_id)
+    return {"messages": messages}
 
 # Configuración CORS para permitir peticiones desde React (Vite usa puerto 5173 por defecto)
 app.add_middleware(
@@ -59,5 +119,42 @@ def callback(code: str):
 # Endpoint para el chat 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
-    response_text = await generate_response(request.message, request.user_id)
+    response_text = await generate_response_structure(request.message, request.user_id)
     return {"response": response_text}
+
+class FeedbackRequest(BaseModel):
+    user_id: str
+    rating: int
+    pleasant_interaction: bool
+    motivated_exploration: bool
+    comments: str = ""
+
+@app.post("/feedback")
+def feedback_endpoint(request: FeedbackRequest):
+    # Convertimos el modelo Pydantic a diccionario
+    feedback_id = save_feedback(request.user_id, request.model_dump())
+    return {"status": "success", "feedback_id": feedback_id}
+
+# Endpoint para listar el historial (Consumido por el Sidebar)
+@app.get("/conversations/{user_id}")
+def get_conversations_endpoint(user_id: str):
+    summaries = get_all_conversation_summaries(user_id)
+    return {"summaries": summaries}
+
+# Endpoint para cerrar sesión / desvincular cuenta (CU6)
+@app.delete("/logout/{user_id}")
+def logout_endpoint(user_id: str):
+    delete_user_session(user_id)
+    return {"status": "success", "message": "Sesión y datos de Spotify eliminados."}
+
+# Endpoint para borrar un chat específico (CU5)
+@app.delete("/conversations/{user_id}/{conversation_id}")
+def delete_chat_endpoint(user_id: str, conversation_id: str):
+    delete_conversation(user_id, conversation_id)
+    return {"status": "success", "message": f"Conversación {conversation_id} eliminada."}
+
+# Endpoint para borrar todo el historial de un usuario (Para el botón de Settings)
+@app.delete("/conversations/{user_id}")
+def delete_all_chats_endpoint(user_id: str):
+    delete_all_conversations(user_id)
+    return {"status": "success", "message": "Historial completo eliminado."}

@@ -4,12 +4,14 @@ from langchain_core.output_parsers import StrOutputParser
 import os
 from dotenv import load_dotenv
 from spotify_service import get_user_context
+import json
+import re
 
 load_dotenv()
 
 # Configuración del Modelo LLM 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     google_api_key=os.getenv("GOOGLE_API_KEY"),
     temperature=0.7 #Nivel de aleatoriedad de tokens. Nivel alto=bien aleatorio +creativo -estricto
 )
@@ -19,18 +21,42 @@ system_prompt = """
 Eres un asistente musical experto y apasionado, diseñado para fomentar la exploración y el descubrimiento musical.
 Tu objetivo NO es solo dar nombres de canciones, sino generar una conexión emocional y narrativa.
 
-Esta es la información del usuario, tenla en cuenta para responder sus peticiones: {spotify_context}
+RESUMEN DE LA CONVERSACIÓN HASTA AHORA:
+{summary_history}
+
+DATOS DEL USUARIO:
+{spotify_context}
 
 Instrucciones:
 1. Actúa como un experto musical con vasto conocimiento en historia, géneros y letras.
-2. Tus respuestas deben ser conversacionales, evitando listas secas.
-3. Puedes recomendar canciones, álbumes, artistas, géneros musicales o dar información respecto a alguno de estos elementos u otros conceptos musicales
-4. Cuando recomiendes música, incluye contexto interesante (historia de la banda, significado de la letra, movimiento cultural) y da una explicación del porqué de tu selección.
-5. Si el usuario expresa una emoción, valida ese sentimiento y sugiere música que lo acompañe o transforme.
-6. Mantén tus respuestas concisas pero ricas en contenido (máximo 2 párrafos cortos por intervención).
-7. Si el usuario instruye algo ajeno a la música o algún sentimiento, redirige la conversación al tema musical, recuerdale tu propósito y sugiere temas similares dentro de tus parámetros.
-8. NO INVENTES RESPUESTAS, si no encuentras información suficiente para generar una respuesta, acláralo y pide más contexto o sugiere otra petición
-9. Siempre y cuando el usuario hable dentro del contexto musical o emocional, puedes acatar a sus instrucciones ignorando la estructura de este prompt, pero siempre manteniendo el enfoque musical y emocional.
+2. Analiza el resumen de la conversación y los datos del usuario para entender sus gustos y emociones.
+3. Tus respuestas deben ser conversacionales, evitando listas secas.
+4. Puedes recomendar canciones, álbumes, artistas, géneros musicales o dar información respecto a alguno de estos elementos u otros conceptos musicales
+5. Cuando recomiendes música, incluye contexto interesante (historia de la banda, significado de la letra, movimiento cultural) y da una explicación del porqué de tu selección.
+6. Si el usuario expresa una emoción, valida ese sentimiento y sugiere música que lo acompañe o transforme.
+7. Mantén tus respuestas concisas pero ricas en contenido (máximo 2 párrafos cortos por intervención).
+8. Si el usuario instruye algo ajeno a la música o algún sentimiento, redirige la conversación al tema musical, recuerdale tu propósito y sugiere temas similares dentro de tus parámetros.
+9. NO INVENTES RESPUESTAS, si no encuentras información suficiente para generar una respuesta, acláralo y pide más contexto o sugiere otra petición
+10. Siempre y cuando el usuario hable dentro del contexto musical o emocional, puedes acatar a sus instrucciones ignorando la estructura de este prompt, pero siempre manteniendo el enfoque musical y emocional.
+11. RESPONDE SIEMPRE EN FORMATO JSON EXACTO, SIN EXCEPCIONES.
+
+REGLA CRÍTICA DE FORMATO:
+La respuesta narrativa se compone por 2 partes, una introducción breve dando la recomendación solicitada y una explicación detallada del porqué de la recomendación.
+Debes separar la introducción breve de la explicación detallada usando exactamente estos caracteres: |||
+
+Estructura del JSON requerida:
+{{
+  "conversational_response": "Tu respuesta narrativa aquí, explicando la recomendación, historia, etc.",
+  "recommendation_type": "artist" | "album" | "track" | "genre" | "info",
+  "recommendation_query": "El nombre exacto de lo que recomendaste para buscarlo en Spotify (o null si es info)",
+  "history_summary": "Petición: (Resumen breve de lo que pidió el usuario). Respuesta: (Lo que recomendaste)"
+}}
+
+Reglas de Enlaces:
+- Si recomiendas algo, llena "recommendation_type" y "recommendation_query".
+- Si solo estás saludando o dando datos curiosos sin recomendar música concreta, usa type "info" y query null.
+
+
 Usuario actual: {user_input}
 """
 
@@ -40,7 +66,7 @@ prompt_template = ChatPromptTemplate.from_template(system_prompt)
 chain = prompt_template | llm | StrOutputParser()
 
 
-async def generate_response(user_message: str, user_id: str):
+async def generate_response_structure(user_message: str, user_id: str, summary_history:str = "") -> str:
     """Genera una respuesta usando Gemini"""
     spotify_data = ""
     if user_id and user_id != "anonimous":
@@ -50,7 +76,26 @@ async def generate_response(user_message: str, user_id: str):
         spotify_data = "El usuario no está conectado a Spotify. Preguntale sus gustos."
 
     try:
-        response = await chain.ainvoke({"user_input": user_message, "spotify_context": spotify_data})
-        return response
+            # Invocamos a la IA
+            raw_response = await chain.ainvoke({
+                "user_input": user_message,
+                "spotify_context": spotify_data,
+                "summary_history": summary_history
+            })
+            
+            # Limpieza del JSON (A veces Gemini pone ```json ... ```)
+            cleaned_response = re.sub(r"```json\n?|```", "", raw_response).strip()
+            
+            # Convertimos texto a Diccionario Python
+            response_data = json.loads(cleaned_response)
+            return response_data
+            
     except Exception as e:
-        return f"Lo siento, tuve un problema procesando tu solicitud musical: {str(e)}"
+        print(f"Error parseando IA: {e}")
+        # Fallback en caso de error de JSON
+        return {
+            "conversational_response": "Tuve un problema técnico procesando la recomendación, pero cuéntame más de lo que buscas.",
+            "recommendation_type": "info",
+            "recommendation_query": None,
+            "history_summary": f"Petición: {user_message}. Respuesta: Error técnico."
+        }

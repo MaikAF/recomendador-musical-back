@@ -84,3 +84,61 @@ def get_user_context(user_id):
     except Exception as e:
         print(f"Error obteniendo datos de Spotify: {e}")
         return "No se pudo obtener el contexto musical detallado."
+    
+
+def search_spotify_item(query, type_filter):
+    """
+    Busca un elemento en Spotify y devuelve su URL externa.
+    type_filter puede ser: 'artist', 'album', 'track', 'genre' (busca playlist), 'info'
+    """
+    if type_filter == 'info' or not query:
+        return None
+
+    # Mapeo de tipos para la API de Spotify
+    spotify_type = type_filter
+    if type_filter == 'genre':
+        spotify_type = 'playlist' # Si es género, buscamos una playlist
+        query = f"The Sound of {query}" 
+    elif type_filter == 'song': # A veces la IA dice 'song' en vez de 'track'
+        spotify_type = 'track'
+
+    try:
+        # Configuración del cliente de Spotify
+        client_credentials_manager = spotipy.oauth2.SpotifyClientCredentials(
+            client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+            client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
+        )
+        sp_search = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+
+        results = sp_search.search(q=query, limit=1, type=spotify_type)
+        
+        items = results.get(f'{spotify_type}s', {}).get('items', [])
+        
+        if items:
+            item = items[0]
+            external_url = item['external_urls']['spotify']
+            image_url = None
+            
+            # Lógica para extraer imagen según el tipo
+            try:
+                if spotify_type == 'track':
+                    # Las canciones tienen la imagen en el álbum
+                    if item.get('album') and item['album'].get('images'):
+                        image_url = item['album']['images'][0]['url'] # 0 es la más grande
+                else:
+                    # Artistas, Albumes y Playlists tienen 'images' directo
+                    if item.get('images'):
+                        image_url = item['images'][0]['url']
+            except IndexError:
+                pass # Si no hay imagen, se queda en None
+
+            return {
+                'url': external_url,
+                'image': image_url
+            }
+        
+        return None
+
+    except Exception as e:
+        print(f"Error buscando en Spotify: {e}")
+        return None
