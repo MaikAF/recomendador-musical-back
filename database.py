@@ -201,3 +201,11 @@ def get_summary_context(user_id, conversation_id):
         # Unimos todo en un solo bloque de texto
         return "\n".join(summaries)
     return ""
+
+def update_conversation_title(user_id, conversation_id, new_title):
+    #Actualiza el título de una conversación.
+    conv_ref = db.collection('users').document(user_id).collection('conversations').document(conversation_id)
+    conv_ref.update({
+        'resumen': new_title
+    })
+    print(f"Título actualizado para chat {conversation_id}: {new_title}")

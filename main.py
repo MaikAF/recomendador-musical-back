@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from database import save_user_token
 from pydantic import BaseModel
 from chat_logic import generate_response_structure
-from database import create_new_conversation, add_message_to_conversation, get_conversation_history, save_feedback, get_all_conversation_summaries, delete_conversation, delete_user_session, delete_all_conversations,add_summary_to_conversation, get_summary_context
+from database import create_new_conversation, add_message_to_conversation, get_conversation_history, save_feedback, get_all_conversation_summaries, delete_conversation, delete_user_session, delete_all_conversations,add_summary_to_conversation, get_summary_context, update_conversation_title
 from typing import Optional
 from spotify_service import search_spotify_item
 
@@ -33,18 +33,26 @@ def new_chat_endpoint(request: newChatRequest):
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     current_conv_id = request.conversation_id
+    is_new_conversation = False
+
     if not current_conv_id:
         current_conv_id = create_new_conversation(request.user_id)
-
+    
     # Guardar mensaje del usuario 
     add_message_to_conversation(request.user_id, current_conv_id, 'user', request.message)
-    
     #  Obtener contexto resumido
     summary_context = get_summary_context(request.user_id, current_conv_id)
     
+    is_new_conversation = (summary_context.strip() == "")
+
+    print(f"La conversación es nueva: {is_new_conversation}")
+
     #  Generar estructura con IA
-    ai_data = await generate_response_structure(request.message, request.user_id, summary_context)
+    ai_data = await generate_response_structure(request.message, request.user_id, summary_context, is_new_conversation)
     
+    if ai_data.get("conversation_title"):
+        update_conversation_title(request.user_id, current_conv_id, ai_data["conversation_title"])
+
     final_response_text = ai_data['conversational_response']
     spotify_info = None
     #  Lógica de Spotify Link
@@ -116,11 +124,6 @@ def callback(code: str):
     save_user_token(user_id, token_info)
     return RedirectResponse(url=f"http://127.0.0.1:5173?uid={user_id}")
 
-# Endpoint para el chat 
-@app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
-    response_text = await generate_response_structure(request.message, request.user_id)
-    return {"response": response_text}
 
 class FeedbackRequest(BaseModel):
     user_id: str

@@ -27,6 +27,8 @@ RESUMEN DE LA CONVERSACIÓN HASTA AHORA:
 DATOS DEL USUARIO:
 {spotify_context}
 
+ES PRIMER MENSAJE: {is_first_message}
+
 Instrucciones:
 1. Actúa como un experto musical con vasto conocimiento en historia, géneros y letras.
 2. Analiza el resumen de la conversación y los datos del usuario para entender sus gustos y emociones.
@@ -50,6 +52,7 @@ Estructura del JSON requerida:
   "recommendation_type": "artist" | "album" | "track" | "genre" | "info",
   "recommendation_query": "El nombre exacto de lo que recomendaste para buscarlo en Spotify (o null si es info)",
   "history_summary": "Petición: (Resumen breve de lo que pidió el usuario). Respuesta: (Lo que recomendaste)"
+  "conversation_title": "Título corto (máx 6 palabras) SOLO SI 'ES PRIMER MENSAJE' es 'True', de lo contrario null"
 }}
 
 Reglas de Enlaces:
@@ -66,7 +69,7 @@ prompt_template = ChatPromptTemplate.from_template(system_prompt)
 chain = prompt_template | llm | StrOutputParser()
 
 
-async def generate_response_structure(user_message: str, user_id: str, summary_history:str = "") -> str:
+async def generate_response_structure(user_message: str, user_id: str, summary_history:str = "", is_first_message = bool) -> str:
     """Genera una respuesta usando Gemini"""
     spotify_data = ""
     if user_id and user_id != "anonimous":
@@ -80,14 +83,16 @@ async def generate_response_structure(user_message: str, user_id: str, summary_h
             raw_response = await chain.ainvoke({
                 "user_input": user_message,
                 "spotify_context": spotify_data,
-                "summary_history": summary_history
-            })
+                "summary_history": summary_history,
+                "is_first_message": str(is_first_message)
+            })  
             
             # Limpieza del JSON (A veces Gemini pone ```json ... ```)
             cleaned_response = re.sub(r"```json\n?|```", "", raw_response).strip()
             
             # Convertimos texto a Diccionario Python
             response_data = json.loads(cleaned_response)
+            print(f"Respuesta parseada de IA para usuario {user_id}: {response_data}")
             return response_data
             
     except Exception as e:
