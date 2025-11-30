@@ -19,6 +19,16 @@ load_dotenv()
 
 app = FastAPI(title="Asistente Musical IA API")
 
+FRONT_URL = os.getenv("FRONT_URL", "http://127.0.0.1:5173").rstrip("/")
+print(f"INFO: Configurado para redirigir al Frontend en: {FRONT_URL}")
+
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8000",
+    FRONT_URL 
+]
+
 class ChatRequest(BaseModel):
     message: str
     user_id: str
@@ -92,7 +102,7 @@ def history_endpoint(user_id: str, conversation_id: str):
 # Configuración CORS para permitir peticiones desde React (Vite usa puerto 5173 por defecto)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:8000", "https://recomendador-musical-front.vercel.app"], 
+    allow_origins=origins, 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -145,11 +155,11 @@ def callback(code: str):
         # guardar todo
         save_user_profile(user_id, token_info, profile_data)
 
-        return RedirectResponse(url=f"http://127.0.0.1:5173?uid={user_id}")
+        return RedirectResponse(url=f"{FRONT_URL}?uid={user_id}")
 
     except SpotifyOauthError as e:
         print(f"ERROR: Falló el canje: {e}")
-        return RedirectResponse(url="http://127.0.0.1:5173")
+        return RedirectResponse(url=f"{FRONT_URL}")
 
 @app.get("/user/{user_id}")
 def get_user_info_endpoint(user_id: str):
