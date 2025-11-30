@@ -48,7 +48,7 @@ Debes separar la introducción breve de la explicación detallada usando exactam
 
 Estructura del JSON requerida:
 {{
-  "conversational_response": "Tu respuesta narrativa aquí, explicando la recomendación, historia, etc.",
+  "conversational_response": "Tu respuesta narrativa aquí, explicando la recomendación, historia, etc. No uses comillas dobles, ni saltos de línea manuales dentro de este campo.",
   "recommendation_type": "artist" | "album" | "track" | "genre" | "info",
   "recommendation_query": "El nombre exacto de lo que recomendaste para buscarlo en Spotify (o null si es info)",
   "history_summary": "Petición: (Resumen breve de lo que pidió el usuario). Respuesta: (Lo que recomendaste)"
@@ -89,12 +89,22 @@ async def generate_response_structure(user_message: str, user_id: str, summary_h
             
             # Limpieza del JSON (A veces Gemini pone ```json ... ```)
             cleaned_response = re.sub(r"```json\n?|```", "", raw_response).strip()
-            
+            repaired_response = cleaned_response.replace('\n', '\\n')
             # Convertimos texto a Diccionario Python
-            response_data = json.loads(cleaned_response)
+            response_data = json.loads(repaired_response)
             print(f"Respuesta parseada de IA para usuario {user_id}: {response_data}")
             return response_data
             
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON PARSE ERROR: {e}")
+        print(f"RAW TEXT FAILED TO PARSE: {raw_response[:200]}...") 
+        
+        # Fallback de seguridad para no romper el chat
+        return {
+            "conversational_response": "Lo siento, tuve un error interno de formato. ¿Podrias formular tu peticion de otra forma? Por favor.",
+            "recommendation_type": "info", "recommendation_query": None, "history_summary": "Error de formato."
+        }
+
     except Exception as e:
         print(f"Error parseando IA: {e}")
         # Fallback en caso de error de JSON

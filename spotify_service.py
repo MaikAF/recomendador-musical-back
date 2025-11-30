@@ -5,16 +5,35 @@ from spotipy.oauth2 import SpotifyOAuth
 import os
 from dotenv import load_dotenv
 from database import get_user_token, save_user_token
+from spotipy.cache_handler import MemoryCacheHandler
+from pathlib import Path
 
-load_dotenv()
+env_path = Path(__file__).parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
-# Reutilizamos la configuración de OAuth para refrescar tokens
-sp_oauth = SpotifyOAuth(
-    client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-    redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
-    scope="user-read-private user-read-email user-top-read user-read-recently-played"
-)
+CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
+SCOPE = "user-read-private user-read-email user-top-read user-read-recently-played"
+
+if not CLIENT_ID:
+    # Esto explotará si no encuentra el archivo .env, lo cual es bueno
+    raise ValueError(f"Falta SPOTIFY_CLIENT_ID. Archivo .env buscado en: {env_path}")
+
+def get_spotify_oauth_client():
+    """Devuelve una nueva instancia de SpotifyOAuth limpia y robusta."""    
+
+    return SpotifyOAuth(
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        redirect_uri=REDIRECT_URI,
+        scope=SCOPE,
+        cache_handler=MemoryCacheHandler() 
+    )
+
+def get_spotify_client(access_token):
+    """Devuelve un objeto Spotipy para hacer llamadas a la API."""
+    return spotipy.Spotify(auth=access_token)
 
 def get_valid_sp_client(user_id):
     """Recupera el token, lo refresca si es necesario y devuelve el cliente de Spotify listo."""

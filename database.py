@@ -15,18 +15,43 @@ db = firestore.client()
 
 def save_user_token(user_id, token_info):
     """
-    Guarda los tokens de Spotify en la colección 'users' según tu modelo NoSQL.
+    Guarda o actualiza solo los tokens de Spotify (usado en el refresco automático).
     """
     users_ref = db.collection('users')
+    # Usamos merge=True para no borrar el nombre u otros datos del perfil
     users_ref.document(user_id).set(token_info, merge=True)
-    print(f"Tokens guardados para el usuario {user_id}")
+    print(f"Token actualizado para {user_id}")
+
+def save_user_profile(user_id, token_info, profile_data):
+    #Guarda los tokens Y la información de perfil (Nombre, Email, etc.)
+    users_ref = db.collection('users')
+    
+    # Combinamos los tokens con los datos del perfil
+    data_to_save = token_info.copy()
+    data_to_save.update(profile_data) # Agregamos display_name, email, etc.
+    
+    users_ref.document(user_id).set(data_to_save, merge=True)
+    print(f"Perfil guardado para {user_id}")
 
 def get_user_token(user_id):
-    #Recupera los tokens para hacer peticiones a Spotify
+    """Recupera tokens."""
     doc = db.collection('users').document(user_id).get()
     if doc.exists:
         return doc.to_dict()
     return None
+
+def get_user_profile(user_id):
+    #Recupera solo la información pública del usuario (Nombre) para el frontend.
+    doc = db.collection('users').document(user_id).get()
+    if doc.exists:
+        data = doc.to_dict()
+        return {
+            "id": user_id,
+            "display_name": data.get("display_name", "Usuario"),
+            "email": data.get("email", "") # Opcional
+        }
+    return None
+
 
 def create_new_conversation(user_id):
     """Crea una nueva conversación vacía y devuelve su ID."""

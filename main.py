@@ -8,9 +8,11 @@ from dotenv import load_dotenv
 from database import save_user_token
 from pydantic import BaseModel
 from chat_logic import generate_response_structure
-from database import create_new_conversation, add_message_to_conversation, get_conversation_history, save_feedback, get_all_conversation_summaries, delete_conversation, delete_user_session, delete_all_conversations,add_summary_to_conversation, get_summary_context, update_conversation_title
+from database import create_new_conversation, add_message_to_conversation, get_conversation_history, save_feedback, get_all_conversation_summaries, delete_conversation, delete_user_session, delete_all_conversations,add_summary_to_conversation, get_summary_context, update_conversation_title, save_user_profile, get_user_profile
 from typing import Optional
-from spotify_service import search_spotify_item
+from spotify_service import search_spotify_item, get_spotify_oauth_client, get_spotify_client
+from spotipy.exceptions import SpotifyOauthError
+
 
 
 load_dotenv()
@@ -110,19 +112,51 @@ def read_root():
 
 @app.get("/login")
 def login():
-    # Redirige al usuario a Spotify para autenticarse 
+    sp_oauth = get_spotify_oauth_client() 
     auth_url = sp_oauth.get_authorize_url()
+    
+    # Inyección de prompt=login
+    if "prompt" not in auth_url:
+        separator = "&" if "?" in auth_url else "?"
+        auth_url += f"{separator}prompt=login"
+        
     return {"url": auth_url}
+
 
 @app.get("/callback")
 def callback(code: str):
-    # Intercambia el código por un token de acceso
-    token_info = sp_oauth.get_access_token(code)
-    sp = spotipy.Spotify(auth=token_info['access_token'])
-    current_user = sp.current_user()
-    user_id = current_user['id']
-    save_user_token(user_id, token_info)
-    return RedirectResponse(url=f"http://127.0.0.1:5173?uid={user_id}")
+    sp_oauth = get_spotify_oauth_client()
+
+    try:
+        token_info = sp_oauth.get_access_token(code)
+        sp = get_spotify_client(token_info['access_token'])
+
+        # Obtenemos el objeto usuario completo de Spotify
+        current_user = sp.current_user()
+        user_id = current_user['id']
+
+        # Extraemos los datos para el usuario
+        profile_data = {
+            "display_name": current_user.get('display_name'),
+            "email": current_user.get('email'),
+            "spotify_url": current_user.get('external_urls', {}).get('spotify')
+        }
+
+        # guardar todo
+        save_user_profile(user_id, token_info, profile_data)
+
+        return RedirectResponse(url=f"http://127.0.0.1:5173?uid={user_id}")
+
+    except SpotifyOauthError as e:
+        print(f"ERROR: Falló el canje: {e}")
+        return RedirectResponse(url="http://127.0.0.1:5173")
+
+@app.get("/user/{user_id}")
+def get_user_info_endpoint(user_id: str):
+    profile = get_user_profile(user_id)
+    if profile:
+        return profile
+    return {"display_name": "Usuario", "id": user_id}
 
 
 class FeedbackRequest(BaseModel):
