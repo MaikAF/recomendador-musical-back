@@ -3,13 +3,30 @@ from firebase_admin import credentials, firestore
 import os
 import uuid
 from datetime import datetime
+import json
 
-
-# Evita inicializar la app múltiples veces si el servidor se recarga
 if not firebase_admin._apps:
-    # Carga las credenciales
-    cred = credentials.Certificate("serviceAccountKey.json")
-    firebase_admin.initialize_app(cred)
+    try:
+        # Leer las credenciales desde una variable de entorno
+        service_account_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+        if service_account_json:
+            # Parseamos la cadena JSON a un objeto Python
+            cred_dict = json.loads(service_account_json)
+            cred = credentials.Certificate(cred_dict)
+            print("INFO: Firebase inicializado con variable de entorno (Producción).")
+        else:
+            #Leer desde el archivo local 
+            cred = credentials.Certificate("serviceAccountKey.json")
+            print("INFO: Firebase inicializado con archivo local (Desarrollo).")
+            
+        firebase_admin.initialize_app(cred)
+
+    except Exception as e:
+        print(f"ERROR FATAL: No se pudo inicializar Firebase. Motivo: {e}")
+        # Es crucial que el servidor no arranque si la base de datos falla
+        # Puedes decidir si levantar el error o manejarlo de otra forma.
+        # Por ahora, dejaremos que el error se lance.
+        raise e
 
 db = firestore.client()
 
