@@ -45,8 +45,7 @@ Instrucciones:
 REGLA CRÍTICA DE FORMATO:
 La respuesta narrativa se compone por 2 partes, una introducción breve dando la recomendación solicitada y una explicación detallada del porqué de la recomendación.
 Debes separar la introducción breve de la explicación detallada usando exactamente estos caracteres: |||
-
-Instrucción CRÍTICA: La respuesta FINAL DEBE ser un objeto JSON puro, comenzando inmediatamente con '{' y terminando con '}'. NO INCLUYAS ```json NI NADA ANTES O DESPUÉS DEL OBJETO."
+La respuesta FINAL DEBE ser un objeto JSON puro, NO INCLUYAS NADA ANTES O DESPUÉS DEL OBJETO."
 
 Estructura del JSON requerida:
 {{
