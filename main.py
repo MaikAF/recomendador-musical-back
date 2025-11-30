@@ -19,7 +19,8 @@ load_dotenv()
 
 app = FastAPI(title="Asistente Musical IA API")
 
-FRONT_URL = os.getenv("FRONT_URL", "http://127.0.0.1:5173").rstrip("/")
+#Probar en localhost: http://127.0.0.1:5173
+FRONT_URL = os.getenv("FRONT_URL")
 print(f"INFO: Configurado para redirigir al Frontend en: {FRONT_URL}")
 
 origins = [
