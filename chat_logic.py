@@ -74,14 +74,19 @@ chain = prompt_template | llm | StrOutputParser()
 async def generate_response_structure(user_message: str, user_id: str, summary_history:str = "", is_first_message = bool) -> str:
     #Genera una respuesta usando Gemini
     spotify_data = ""
-    if user_id and user_id != "anonimous":
+    if user_id and user_id != "anonymous":
         spotify_data = get_user_context(user_id)
         print(f"Contexto Spotify para usuario {user_id}: {spotify_data}")
     else:
         spotify_data = "El usuario no está conectado a Spotify. Preguntale sus gustos."
 
     try:
-            raw_response = await chain.ainvoke({ ... })
+            raw_response = await chain.ainvoke({          
+                "user_input": user_message,
+                "spotify_context": spotify_data,
+                "summary_history": summary_history,
+                "is_first_message": str(is_first_message)
+            })
             
             # Elimina ```, espacios en blanco y saltos de línea alrededor del objeto.
             # Usa re.S para que `.` también coincida con saltos de línea
