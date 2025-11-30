@@ -46,6 +46,8 @@ REGLA CRÍTICA DE FORMATO:
 La respuesta narrativa se compone por 2 partes, una introducción breve dando la recomendación solicitada y una explicación detallada del porqué de la recomendación.
 Debes separar la introducción breve de la explicación detallada usando exactamente estos caracteres: |||
 
+Instrucción CRÍTICA: La respuesta FINAL DEBE ser un objeto JSON puro, comenzando inmediatamente con '{' y terminando con '}'. NO INCLUYAS ```json NI NADA ANTES O DESPUÉS DEL OBJETO."
+
 Estructura del JSON requerida:
 {{
   "conversational_response": "Tu respuesta narrativa aquí, explicando la recomendación, historia, etc. No uses comillas dobles, ni saltos de línea manuales dentro de este campo.",
@@ -70,7 +72,7 @@ chain = prompt_template | llm | StrOutputParser()
 
 
 async def generate_response_structure(user_message: str, user_id: str, summary_history:str = "", is_first_message = bool) -> str:
-    """Genera una respuesta usando Gemini"""
+    #Genera una respuesta usando Gemini
     spotify_data = ""
     if user_id and user_id != "anonimous":
         spotify_data = get_user_context(user_id)
@@ -79,20 +81,29 @@ async def generate_response_structure(user_message: str, user_id: str, summary_h
         spotify_data = "El usuario no está conectado a Spotify. Preguntale sus gustos."
 
     try:
-            # Invocamos a la IA
-            raw_response = await chain.ainvoke({
-                "user_input": user_message,
-                "spotify_context": spotify_data,
-                "summary_history": summary_history,
-                "is_first_message": str(is_first_message)
-            })  
+            raw_response = await chain.ainvoke({ ... })
             
-            # Limpieza del JSON (A veces Gemini pone ```json ... ```)
-            cleaned_response = re.sub(r"```json\n?|```", "", raw_response).strip()
-            repaired_response = cleaned_response.replace('\n', '\\n')
-            # Convertimos texto a Diccionario Python
-            response_data = json.loads(repaired_response)
-            print(f"Respuesta parseada de IA para usuario {user_id}: {response_data}")
+            # Elimina ```, espacios en blanco y saltos de línea alrededor del objeto.
+            # Usa re.S para que `.` también coincida con saltos de línea
+            cleaned_response = re.sub(r'```json.*?|```', '', raw_response, flags=re.DOTALL)
+            
+            # Encontrar el objeto JSON y limpiar el espacio en blanco exterior
+            # Buscamos el primer '{' y el último '}' y extraemos todo lo que hay dentro
+            start_index = cleaned_response.find('{')
+            end_index = cleaned_response.rfind('}')
+            
+            if start_index == -1 or end_index == -1:
+                raise json.JSONDecodeError("Objeto JSON no encontrado después de la limpieza.", raw_response, 0)
+            
+            json_string = cleaned_response[start_index : end_index + 1]
+            
+            # Sustituir saltos de línea y tabuladores que puedan romper la estructura
+            # Esto es un parche para JSON mal formado
+            json_string = json_string.replace('\n', '\\n').replace('\t', ' ')
+
+            # 4. Cargar JSON
+            response_data = json.loads(json_string)
+            
             return response_data
             
     except json.JSONDecodeError as e:
