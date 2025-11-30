@@ -86,28 +86,34 @@ async def generate_response_structure(user_message: str, user_id: str, summary_h
                 "is_first_message": str(is_first_message)
             })
             
-            # Elimina ```, espacios en blanco y saltos de línea alrededor del objeto.
-            # Usa re.S para que `.` también coincida con saltos de línea
-            cleaned_response = re.sub(r'```json.*?|```', '', raw_response, flags=re.DOTALL)
-            
-            # Encontrar el objeto JSON y limpiar el espacio en blanco exterior
-            # Buscamos el primer '{' y el último '}' y extraemos todo lo que hay dentro
+            cleaned_response = raw_response.strip()
+            if cleaned_response.startswith('```'):
+                # Elimina la primera línea que contenga ``` (incluyendo json o python)
+                cleaned_response = re.sub(r'^\s*```\w*\s*\n', '', cleaned_response, flags=re.MULTILINE)
+            if cleaned_response.endswith('```'):
+                # Elimina el cierre de bloque ```
+                cleaned_response = cleaned_response[:-3].strip()
+
+            # 2. Encuentra la primera '{' y la última '}' para aislar el JSON.
             start_index = cleaned_response.find('{')
             end_index = cleaned_response.rfind('}')
-            
-            if start_index == -1 or end_index == -1:
-                raise json.JSONDecodeError("Objeto JSON no encontrado después de la limpieza.", raw_response, 0)
-            
-            json_string = cleaned_response[start_index : end_index + 1]
-            
-            # Sustituir saltos de línea y tabuladores que puedan romper la estructura
-            # Esto es un parche para JSON mal formado
-            json_string = json_string.replace('\n', '\\n').replace('\t', ' ')
 
-            # 4. Cargar JSON
-            response_data = json.loads(json_string)
-            
-            return response_data
+            if start_index == -1 or end_index == -1:
+                raise ValueError("Objeto JSON no encontrado después de la limpieza de Markdown.")
+
+            json_string = cleaned_response[start_index : end_index + 1]
+
+            # 3. Intentamos cargar el JSON. Si falla, es por un carácter de control.
+            try:
+                response_data = json.loads(json_string)
+                return response_data
+            except json.JSONDecodeError as e_inner:
+                # Último intento: reemplazar caracteres de control/saltos de línea dentro de las cadenas.
+                # Esta línea es un parche para JSON mal formado por la IA
+                print(f"Intento de rescate por JSON inválido. Error: {e_inner}")
+                json_string = json_string.replace('\n', '\\n').replace('\t', ' ')
+                response_data = json.loads(json_string)
+                return response_data
             
     except json.JSONDecodeError as e:
         print(f"❌ JSON PARSE ERROR: {e}")
