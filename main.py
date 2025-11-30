@@ -92,7 +92,7 @@ def history_endpoint(user_id: str, conversation_id: str):
 # Configuración CORS para permitir peticiones desde React (Vite usa puerto 5173 por defecto)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:8000"], 
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:8000", "recomendador-musical-front.vercel.app"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
