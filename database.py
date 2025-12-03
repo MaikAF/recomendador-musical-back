@@ -4,6 +4,22 @@ import os
 import uuid
 from datetime import datetime
 import json
+import hashlib
+
+def hash_user_id_securely(user_id):
+    """
+    Genera un hash anónimo usando una SAL (Salt) secreta.
+    Esto impide que el administrador pueda revertir el hash fácilmente solo conociendo el ID.
+    """
+    # Obtener la sal del entorno. Si no existe, usa una por defecto (Inseguro para prod, útil para dev)
+    salt = os.getenv("FEEDBACK_SECRET_SALT", "default_salt_change_me")
+    
+    # Combinamos ID + Salt
+    combined_string = f"{user_id}{salt}"
+    
+    # Hasheamos
+    return hashlib.sha256(combined_string.encode('utf-8')).hexdigest()
+
 
 if not firebase_admin._apps:
     try:
@@ -146,11 +162,11 @@ def save_feedback(user_id, feedback_data):
     Guarda la retroalimentación del usuario.
     Estructura basada en el diagrama de datos de la tesis.
     """
-    feedback_ref = db.collection('feedback').document() # ID autogenerado
-    
+    user_hash = hash_user_id_securely(user_id)
+    feedback_ref = db.collection('feedback').document(user_hash) # ID autogenerado
     # Preparamos el objeto según el esquema definido
     data_to_save = {
-        'User_Hash': user_id, # Usamos el ID como hash identificador
+        'User_Hash': user_hash, # Usamos el ID como hash identificador
         'Rating': feedback_data.get('rating'),
         'Respuestas_cualitativas': {
             'Interacción_agradable': feedback_data.get('pleasant_interaction'), # Binario
@@ -161,7 +177,7 @@ def save_feedback(user_id, feedback_data):
     }
     
     feedback_ref.set(data_to_save)
-    return feedback_ref.id
+    return user_hash
 
 def get_all_conversation_summaries(user_id):
     """Recupera el ID y el resumen de todos los chats de un usuario para la barra lateral."""

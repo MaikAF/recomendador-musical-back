@@ -7,9 +7,14 @@ from dotenv import load_dotenv
 from database import get_user_token, save_user_token
 from spotipy.cache_handler import MemoryCacheHandler
 from pathlib import Path
+from difflib import SequenceMatcher
 
 env_path = Path(__file__).parent / '.env'
 load_dotenv(dotenv_path=env_path)
+
+def similar(a, b):
+    #Retorna un ratio de similitud entre 0 y 1.
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -135,6 +140,17 @@ def search_spotify_item(query, type_filter):
         
         if items:
             item = items[0]
+            found_name = item['name']
+
+            # Validación de similitud
+            # Si es género/playlist, es menos estricta (0.4). Si es canción/artista, mas estricta (0.6).
+            threshold = 0.4 if type_filter == 'genre' else 0.6
+            similarity = similar(query, found_name)
+            
+            if similarity < threshold:
+                print(f"Descartado por baja similitud: Buscado '{query}' vs Encontrado '{found_name}' ({similarity:.2f})")
+                return None
+            
             external_url = item['external_urls']['spotify']
             image_url = None
             
