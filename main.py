@@ -155,7 +155,7 @@ def callback(code: str):
 
         # guardar todo
         save_user_profile(user_id, token_info, profile_data)
-
+        print("Front url para redirigir después del login: ", f"{FRONT_URL}?uid={user_id}")
         return RedirectResponse(url=f"{FRONT_URL}?uid={user_id}")
 
     except SpotifyOauthError as e:
