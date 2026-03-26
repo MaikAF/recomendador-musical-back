@@ -38,11 +38,31 @@ class ChatRequest(BaseModel):
 class newChatRequest(BaseModel):
     user_id: str
 
+# Configuración CORS para permitir peticiones desde React (Vite usa puerto 5173 por defecto)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# Configuración de Spotify Auth
+sp_oauth = SpotifyOAuth(
+    client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
+    redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
+    scope="user-read-private user-read-email user-top-read user-read-recently-played" # Scopes necesarios para leer perfil y gustos
+)
+
+# Endpoint para iniciar una nueva conversación (opcional, ya que el endpoint de chat también puede crear una nueva conversación si no se proporciona conversation_id)
 @app.post("/new_chat")
 def new_chat_endpoint(request: newChatRequest):
     conv_id = create_new_conversation(request.user_id)
     return {"conversation_id": conv_id}
 
+# Endpoint principal para manejar mensajes de chat
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     current_conv_id = request.conversation_id
@@ -95,32 +115,19 @@ async def chat_endpoint(request: ChatRequest):
         "spotify_data": spotify_info
     }
 
+# Endpoint para obtener el historial de una conversación específica (Consumido por el ChatWindow)
 @app.get("/history/{user_id}/{conversation_id}")
 def history_endpoint(user_id: str, conversation_id: str):
     messages = get_conversation_history(user_id, conversation_id)
     return {"messages": messages}
 
-# Configuración CORS para permitir peticiones desde React (Vite usa puerto 5173 por defecto)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins, 
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# Configuración de Spotify Auth
-sp_oauth = SpotifyOAuth(
-    client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-    redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI"),
-    scope="user-read-private user-read-email user-top-read user-read-recently-played" # Scopes necesarios para leer perfil y gustos
-)
-
+# Endpoint raíz para verificar que la API está activa
 @app.get("/")
 def read_root():
     return {"message": "API del Recomendador Musical activa"}
 
+# Endpoint para iniciar el proceso de login con Spotify (Redirige a Spotify para autenticación)
 @app.get("/login")
 def login():
     sp_oauth = get_spotify_oauth_client() 
@@ -133,7 +140,7 @@ def login():
         
     return {"url": auth_url}
 
-
+# Endpoint de callback para manejar la respuesta de Spotify después del login
 @app.get("/callback")
 def callback(code: str):
     sp_oauth = get_spotify_oauth_client()
@@ -162,6 +169,7 @@ def callback(code: str):
         print(f"ERROR: Falló el canje: {e}")
         return RedirectResponse(url=f"{FRONT_URL}")
 
+# Endpoint para obtener información del usuario (Consumido por el Frontend para mostrar el nombre en el header)
 @app.get("/user/{user_id}")
 def get_user_info_endpoint(user_id: str):
     profile = get_user_profile(user_id)
@@ -177,6 +185,7 @@ class FeedbackRequest(BaseModel):
     motivated_exploration: bool
     comments: str = ""
 
+# Endpoint para recibir feedback del usuario después de la conversación (Consumido por el componente de Feedback al final del chat)
 @app.post("/feedback")
 def feedback_endpoint(request: FeedbackRequest):
     # Convertimos el modelo Pydantic a diccionario

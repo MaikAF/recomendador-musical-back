@@ -167,9 +167,12 @@ def search_spotify_item(query, type_filter):
             except IndexError:
                 pass # Si no hay imagen, se queda en None
 
+            preview_url = item.get('preview_url') if spotify_type == 'track' else None
+            print(f"Encontrado en Spotify: '{found_name}' con similitud {similarity:.2f}. URL: {external_url}, Imagen: {image_url}, Preview: {preview_url}")
             return {
                 'url': external_url,
-                'image': image_url
+                'image': image_url,
+                'preview_url': preview_url
             }
         
         return None

@@ -126,6 +126,7 @@ def get_conversation_history(user_id, conversation_id):
     if doc.exists:
         return doc.to_dict().get('mensajes', [])
     return []
+
 #SE VERA ESTO MAS TARDE
 def check_conversation_limits(user_id, conversation_id):
     """
