@@ -3,9 +3,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import os
 from dotenv import load_dotenv
-from spotify_service import get_user_context
 import json
 import re
+
+# IMPORTANTE: Ahora importamos el Gestor de Contexto, no el servicio directo de Spotify
+from services.context_manager import get_user_musical_context
 
 load_dotenv()
 
@@ -13,10 +15,10 @@ load_dotenv()
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=os.getenv("GOOGLE_API_KEY"),
-    temperature=0.7 #Nivel de aleatoriedad de tokens. Nivel alto=bien aleatorio +creativo -estricto
+    temperature=0.7 
 )
 
-# Definición del Prompt del Sistema 
+# Definición del Prompt del Sistema (Cambios: spotify_context -> user_context y coma agregada en el JSON)
 system_prompt = """
 Eres un asistente musical experto y apasionado, diseñado para fomentar la exploración y el descubrimiento musical.
 Tu objetivo NO es solo dar nombres de canciones, sino generar una conexión emocional y narrativa.
@@ -25,7 +27,7 @@ RESUMEN DE LA CONVERSACIÓN HASTA AHORA:
 {summary_history}
 
 DATOS DEL USUARIO:
-{spotify_context}
+{user_context}
 
 ES PRIMER MENSAJE: {is_first_message}
 
@@ -35,9 +37,9 @@ Instrucciones:
 3. Tus respuestas deben ser conversacionales, evitando listas secas.
 4. Puedes recomendar canciones, álbumes, artistas, géneros musicales o dar información respecto a alguno de estos elementos u otros conceptos musicales
 5. Cuando recomiendes música, incluye contexto interesante (historia de la banda, significado de la letra, movimiento cultural) y da una explicación del porqué de tu selección.
-6. Si el usuario expresa una emoción, valida ese sentimiento y sugiere música que lo acompañe o transforme.
+6. Si el usuario expresa una emoción, valida ese sentimiento y sugiere música que lo acompañe o transformalo.
 7. Mantén tus respuestas concisas pero ricas en contenido (máximo 2 párrafos cortos por intervención).
-8. Si el usuario instruye algo ajeno a la música o algún sentimiento, redirige la conversación al tema musical, recuerdale tu propósito y sugiere temas similares dentro de tus parámetros.
+8. Si el usuario instruye algo ajeno a la música o algún sentimiento, redirige la conversación al tema musical, recuérdale tu propósito y sugiere temas similares dentro de tus parámetros.
 9. NO INVENTES RESPUESTAS, si no encuentras información suficiente para generar una respuesta, acláralo y pide más contexto o sugiere otra petición
 10. Siempre y cuando el usuario hable dentro del contexto musical o emocional, puedes acatar a sus instrucciones ignorando la estructura de este prompt, pero siempre manteniendo el enfoque musical y emocional.
 11. RESPONDE SIEMPRE EN FORMATO JSON EXACTO, SIN EXCEPCIONES.
@@ -51,7 +53,7 @@ Estructura del JSON requerida:
   "conversational_response": "Tu respuesta narrativa aquí, explicando la recomendación, historia, etc. No uses comillas dobles, ni saltos de línea manuales dentro de este campo.",
   "recommendation_type": "artist" | "album" | "track" | "genre" | "info",
   "recommendation_query": "El nombre exacto de lo que recomendaste para buscarlo en Spotify (o null si es info)",
-  "history_summary": "Petición: (Resumen breve de lo que pidió el usuario). Respuesta: (Lo que recomendaste)"
+  "history_summary": "Petición: (Resumen breve de lo que pidió el usuario). Respuesta: (Lo que recomendaste)",
   "conversation_title": "Título corto (máx 6 palabras) SOLO SI 'ES PRIMER MENSAJE' es 'True', de lo contrario null"
 }}
 
@@ -65,69 +67,62 @@ Usuario actual: {user_input}
 
 prompt_template = ChatPromptTemplate.from_template(system_prompt)
     
-# Cadena de procesamiento simple (Input -> Prompt -> Gemini -> Texto)
+# Cadena de procesamiento simple
 chain = prompt_template | llm | StrOutputParser()
 
-
-async def generate_response_structure(user_message: str, user_id: str, summary_history:str = "", is_first_message = bool) -> str:
-    #Genera una respuesta usando Gemini
-    spotify_data = ""
+# Añadimos el parámetro "platform" con un valor por defecto
+async def generate_response_structure(user_message: str, user_id: str, platform: str = "spotify", summary_history: str = "", is_first_message: bool = False) -> dict:
+    
+    # 1. Obtenemos el contexto a través de nuestro nuevo Manager
+    user_context_data = ""
     if user_id and user_id != "anonymous":
-        spotify_data = get_user_context(user_id)
-        print(f"Contexto Spotify para usuario {user_id}: {spotify_data}")
+        user_context_data = get_user_musical_context(user_id, platform)
+        print(f"🟢 Contexto ({platform}) para usuario {user_id} cargado con éxito.")
     else:
-        spotify_data = "El usuario no está conectado a Spotify. Preguntale sus gustos."
+        user_context_data = "El usuario no está conectado a ninguna plataforma musical. Pregúntale sus gustos."
 
     try:
-            raw_response = await chain.ainvoke({          
-                "user_input": user_message,
-                "spotify_context": spotify_data,
-                "summary_history": summary_history,
-                "is_first_message": str(is_first_message)
-            })
-            
-            cleaned_response = raw_response.strip()
-            if cleaned_response.startswith('```'):
-                # Elimina la primera línea que contenga ``` (incluyendo json o python)
-                cleaned_response = re.sub(r'^\s*```\w*\s*\n', '', cleaned_response, flags=re.MULTILINE)
-            if cleaned_response.endswith('```'):
-                # Elimina el cierre de bloque ```
-                cleaned_response = cleaned_response[:-3].strip()
+        raw_response = await chain.ainvoke({          
+            "user_input": user_message,
+            "user_context": user_context_data, # Ahora pasamos la variable genérica
+            "summary_history": summary_history,
+            "is_first_message": str(is_first_message)
+        })
+        
+        cleaned_response = raw_response.strip()
+        if cleaned_response.startswith('```'):
+            cleaned_response = re.sub(r'^\s*```\w*\s*\n', '', cleaned_response, flags=re.MULTILINE)
+        if cleaned_response.endswith('```'):
+            cleaned_response = cleaned_response[:-3].strip()
 
-            # 2. Encuentra la primera '{' y la última '}' para aislar el JSON.
-            start_index = cleaned_response.find('{')
-            end_index = cleaned_response.rfind('}')
+        start_index = cleaned_response.find('{')
+        end_index = cleaned_response.rfind('}')
 
-            if start_index == -1 or end_index == -1:
-                raise ValueError("Objeto JSON no encontrado después de la limpieza de Markdown.")
+        if start_index == -1 or end_index == -1:
+            raise ValueError("Objeto JSON no encontrado después de la limpieza de Markdown.")
 
-            json_string = cleaned_response[start_index : end_index + 1]
+        json_string = cleaned_response[start_index : end_index + 1]
 
-            # 3. Intentamos cargar el JSON. Si falla, es por un carácter de control.
-            try:
-                response_data = json.loads(json_string)
-                return response_data
-            except json.JSONDecodeError as e_inner:
-                # Último intento: reemplazar caracteres de control/saltos de línea dentro de las cadenas.
-                # Esta línea es un parche para JSON mal formado por la IA
-                print(f"Intento de rescate por JSON inválido. Error: {e_inner}")
-                json_string = json_string.replace('\n', '\\n').replace('\t', ' ')
-                response_data = json.loads(json_string)
-                return response_data
+        try:
+            response_data = json.loads(json_string)
+            return response_data
+        except json.JSONDecodeError as e_inner:
+            print(f"⚠️ Intento de rescate por JSON inválido. Error: {e_inner}")
+            json_string = json_string.replace('\n', '\\n').replace('\t', ' ')
+            response_data = json.loads(json_string)
+            return response_data
             
     except json.JSONDecodeError as e:
         print(f"❌ JSON PARSE ERROR: {e}")
         print(f"RAW TEXT FAILED TO PARSE: {raw_response[:200]}...") 
         
-        # Fallback de seguridad para no romper el chat
         return {
-            "conversational_response": "Lo siento, tuve un error interno de formato. ¿Podrias formular tu peticion de otra forma? Por favor.",
+            "conversational_response": "Lo siento, tuve un error interno de formato. ¿Podrías formular tu petición de otra forma? Por favor.",
             "recommendation_type": "info", "recommendation_query": None, "history_summary": "Error de formato."
         }
 
     except Exception as e:
-        print(f"Error parseando IA: {e}")
-        # Fallback en caso de error de JSON
+        print(f"❌ Error parseando IA: {e}")
         return {
             "conversational_response": "Tuve un problema técnico procesando la recomendación, pero cuéntame más de lo que buscas.",
             "recommendation_type": "info",
