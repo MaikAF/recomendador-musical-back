@@ -1,10 +1,9 @@
 import spotipy
 import time
-from database import get_user_token, save_user_token # Asumiendo que database.py tiene estas funciones
+from database import get_user_token, update_user_auth_data # Asumiendo que database.py tiene estas funciones
 from spotipy.oauth2 import SpotifyOAuth
 import os
 from dotenv import load_dotenv
-from database import get_user_token, save_user_token
 from spotipy.cache_handler import MemoryCacheHandler
 from pathlib import Path
 from difflib import SequenceMatcher
@@ -67,7 +66,7 @@ def get_valid_sp_client(user_id):
             if 'refresh_token' not in new_token_info:
                 new_token_info['refresh_token'] = refresh_token
             
-            save_user_token(user_id, new_token_info) # Guardamos el nuevo token
+            update_user_auth_data(user_id, new_token_info) # Guardamos el nuevo token
             print(f"Token refrescado para usuario {user_id}")
             token_info = new_token_info
         except Exception as e:
