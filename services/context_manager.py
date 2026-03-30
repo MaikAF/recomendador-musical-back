@@ -1,5 +1,31 @@
 from services.lastfm_service import get_lastfm_user_profile
 from services.spotify_service import get_user_context as get_spotify_user_data
+from services.ytmusic_service import get_ytmusic_user_data
+from database import get_user_token # Asegúrate de importar esto
+
+
+def build_ytmusic_context(user_id: str) -> str:
+    """Extrae y formatea los datos de YouTube Music para el LLM."""
+    # Obtenemos los tokens desde la base de datos (campo auth_data)
+    auth_data = get_user_token(user_id)
+    
+    if not auth_data or "access_token" not in auth_data:
+        return "El usuario no tiene una cuenta de YouTube Music vinculada."
+
+    data = get_ytmusic_user_data(auth_data["access_token"])
+    
+    if not data:
+        return "No se pudo recuperar la información de YouTube Music."
+
+    contexto = "Historial musical del usuario (basado en YouTube Music):\n"
+    
+    if data["playlists"]:
+        contexto += f"- Sus listas de reproducción incluyen: {', '.join(data['playlists'])}.\n"
+    
+    if data["recent_likes"]:
+        contexto += f"- Le han gustado recientemente estos videos/canciones: {', '.join(data['recent_likes'])}.\n"
+    
+    return contexto
 
 def build_lastfm_context(username: str) -> str:
     """Extrae y formatea los datos de Last.FM en texto plano para el LLM."""
@@ -59,6 +85,6 @@ def get_user_musical_context(user_id: str, platform: str) -> str:
     elif platform == 'spotify':
         return build_spotify_context(user_id)
     elif platform == 'ytmusic':
-        return "Historial de YT Music en desarrollo..."
+        return build_ytmusic_context(user_id)
     else:
         return "Sin contexto musical previo. El usuario es nuevo o anónimo."

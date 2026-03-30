@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional
 from spotipy.exceptions import SpotifyOauthError
+import urllib.parse
+import requests
 
 # Importaciones locales actualizadas
 from chat_logic import generate_response_structure
@@ -223,6 +225,81 @@ def login_lastfm(request: LastFMLoginRequest):
         "user_id": internal_user_id, 
         "display_name": username
     }
+
+# 3. YOUTUBE MUSIC (NUEVO)
+@app.get("/login/ytmusic")
+def login_ytmusic():
+    """Genera la URL de autorización de Google para YouTube Data API"""
+    google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+    redirect_uri = os.getenv("YTMUSIC_REDIRECT_URI")
+    
+    # Scopes necesarios: Perfil básico y lectura de YouTube
+    scopes = [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/youtube.readonly"
+    ]
+    
+    auth_url = "https://accounts.google.com/o/oauth2/v2/auth"
+    params = {
+        "client_id": google_client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": " ".join(scopes),
+        "access_type": "offline", # Crucial para obtener el refresh_token
+        "prompt": "consent"       # Fuerza la pantalla de permisos para asegurar el refresh_token
+    }
+    
+    url = f"{auth_url}?{urllib.parse.urlencode(params)}"
+    return {"url": url}
+
+@app.get("/callback/ytmusic")
+def callback_ytmusic(code: str):
+    """Recibe el código de Google, obtiene los tokens y guarda al usuario"""
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    redirect_uri = os.getenv("YTMUSIC_REDIRECT_URI")
+    
+    # 1. Intercambiar el código por los tokens
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code"
+    }
+    
+    response = requests.post(token_url, data=data)
+    token_info = response.json()
+    
+    if "error" in token_info:
+        print(f"🔴 ERROR en callback de Google: {token_info}")
+        return RedirectResponse(url=f"{FRONT_URL}?error=ytmusic_auth_failed")
+        
+    # 2. Usar el access_token para obtener el perfil básico del usuario
+    headers = {"Authorization": f"Bearer {token_info['access_token']}"}
+    profile_res = requests.get("https://www.googleapis.com/oauth2/v2/userinfo", headers=headers)
+    profile_data = profile_res.json()
+    
+    google_user_id = profile_data['id']
+    display_name = profile_data.get('name', 'Usuario de YouTube')
+    
+    # Creamos un ID interno con prefijo para evitar choques con Spotify
+    internal_user_id = f"yt_{google_user_id}"
+    
+    # 3. ¡La magia de la arquitectura unificada! Guardamos en la BD
+    save_or_update_user(
+        user_id=internal_user_id,
+        platform="ytmusic",
+        platform_user_id=google_user_id,
+        display_name=display_name,
+        auth_data=token_info # Guardamos el access_token y refresh_token de Google
+    )
+    
+    # Redirigimos al frontend con el ID interno
+    return RedirectResponse(url=f"{FRONT_URL}?uid={internal_user_id}")
 
 # ==========================================
 # RUTAS DE USUARIO Y CONFIGURACIÓN
