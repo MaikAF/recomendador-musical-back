@@ -78,6 +78,7 @@ async def generate_response_structure(user_message: str, user_id: str, platform:
     if user_id and user_id != "anonymous":
         user_context_data = get_user_musical_context(user_id, platform)
         print(f"🟢 Contexto ({platform}) para usuario {user_id} cargado con éxito.")
+        print(f"Contexto obtenido: {user_context_data}")
     else:
         user_context_data = "El usuario no está conectado a ninguna plataforma musical. Pregúntale sus gustos."
 

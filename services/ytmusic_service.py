@@ -4,7 +4,7 @@ import os
 def get_ytmusic_user_data(access_token: str):
     """
     Extrae la actividad musical del usuario desde YouTube Data API v3.
-    Obtiene sus Playlists y sus últimos 'Likes' en la categoría de Música.
+    Filtra estrictamente los 'Likes' para conservar SOLO los videos musicales.
     """
     headers = {"Authorization": f"Bearer {access_token}"}
     yt_base_url = "https://www.googleapis.com/youtube/v3"
@@ -22,11 +22,9 @@ def get_ytmusic_user_data(access_token: str):
             for item in playlists_data["items"]:
                 user_playlists.append(item["snippet"]["title"])
 
-        # 2. Obtener videos a los que dio 'Like' (filtrando por música si es posible)
-        # Nota: La API de YouTube no permite filtrar 'Likes' por categoría directamente, 
-        # así que traemos los últimos 10 y Gemini filtrará lo que no sea música.
+        # 2. Obtener videos a los que dio 'Like' (Pedimos 50 para tener margen de filtrado)
         likes_res = requests.get(
-            f"{yt_base_url}/videos?part=snippet&myRating=like&maxResults=10",
+            f"{yt_base_url}/videos?part=snippet&myRating=like&maxResults=50",
             headers=headers
         )
         likes_data = likes_res.json()
@@ -34,8 +32,15 @@ def get_ytmusic_user_data(access_token: str):
         liked_songs = []
         if "items" in likes_data:
             for item in likes_data["items"]:
-                # Intentamos capturar el título del video
-                liked_songs.append(item["snippet"]["title"])
+                snippet = item.get("snippet", {})
+                
+                # EL FILTRO MÁGICO: categoryId '10' es "Music" en la API de YouTube
+                if snippet.get("categoryId") == "10":
+                    liked_songs.append(snippet.get("title"))
+                    
+                # Si ya recolectamos 10 canciones puras, nos detenemos para no saturar los tokens de Gemini
+                if len(liked_songs) >= 10:
+                    break
 
         return {
             "playlists": user_playlists,

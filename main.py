@@ -10,6 +10,10 @@ from typing import Optional
 from spotipy.exceptions import SpotifyOauthError
 import urllib.parse
 import requests
+from services.itunes_service import search_itunes_preview
+import re
+
+
 
 # Importaciones locales actualizadas
 from chat_logic import generate_response_structure
@@ -82,6 +86,8 @@ def new_chat_endpoint(request: newChatRequest):
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
+    
+
     current_conv_id = request.conversation_id
 
     if not current_conv_id:
@@ -95,22 +101,32 @@ async def chat_endpoint(request: ChatRequest):
     is_new_conversation = (summary_context.strip() == "")
 
     # NUEVO: Buscar plataforma del usuario en la base de datos
+# Buscar plataforma del usuario en la base de datos
     user_profile = get_user_profile(request.user_id)
     platform = "none"
     platform_user_id = "anonymous"
 
     if user_profile:
         platform = user_profile.get("platform", "none")
-        # Es vital usar platform_user_id (el username real de last.fm o ID de spotify)
         platform_user_id = user_profile.get("platform_user_id", request.user_id)
 
-    print(f"INFO: Procesando chat para usuario '{platform_user_id}' en plataforma '{platform}'.")
+    # --- EL ARREGLO MÁGICO ---
+    # Decidimos qué ID enviarle al Gestor de Contexto según la plataforma
+    if platform == "lastfm":
+        # Last.FM necesita el nombre de usuario público (ej: 'duwang_acagar')
+        id_for_context = platform_user_id
+    else:
+        # Spotify y YouTube necesitan el ID del documento de BD para extraer sus tokens
+        id_for_context = request.user_id 
+    # -------------------------
 
-    # Generar estructura con IA (Pasamos la plataforma y el ID real)
+    print(f"INFO: Procesando chat. BD ID: '{request.user_id}', Plataforma: '{platform}'.")
+
+    # Generar estructura con IA
     ai_data = await generate_response_structure(
         user_message=request.message, 
-        user_id=platform_user_id, 
-        platform=platform, # <--- Inyectamos la plataforma aquí
+        user_id=id_for_context, # <--- Usamos la variable inteligente
+        platform=platform, 
         summary_history=summary_context, 
         is_first_message=is_new_conversation
     )
@@ -120,7 +136,8 @@ async def chat_endpoint(request: ChatRequest):
 
     final_response_text = ai_data['conversational_response']
     spotify_info = None
-    
+    audio_preview = None
+
     # Lógica de Spotify Link
     if ai_data['recommendation_type'] != 'info' and ai_data['recommendation_query']:
         search_result = search_spotify_item(ai_data['recommendation_query'], ai_data['recommendation_type'])
@@ -135,6 +152,29 @@ async def chat_endpoint(request: ChatRequest):
         else:
             final_response_text += f"\n\n(Nota: No encontré el enlace directo en Spotify para '{ai_data['recommendation_query']}', pero vale la pena buscarlo en la web)."
 
+        if ai_data['recommendation_type'] == 'track':
+    # --- EL FILTRO MÁGICO PARA iTUNES ---
+            raw_query = ai_data['recommendation_query']
+            
+            # 1. Quitar comillas, la palabra "by", guiones y paréntesis
+            clean_query = raw_query.replace('"', '').replace("'", "")
+            clean_query = re.sub(r'\bby\b', '', clean_query, flags=re.IGNORECASE) 
+            clean_query = re.sub(r'[-()]', ' ', clean_query)
+            
+            # 2. Quitar espacios dobles
+            clean_query = " ".join(clean_query.split())
+            
+            print(f"🔍 DEBUG iTUNES: Buscando -> '{clean_query}' (Original: '{raw_query}')")
+            # ------------------------------------
+
+            # Ahora le pasamos la búsqueda limpia a iTunes
+            itunes_data = search_itunes_preview(clean_query)
+            if itunes_data:
+                audio_preview = itunes_data
+                print(f"✅ DEBUG iTUNES: Preview encontrado para '{clean_query}'. URL: {audio_preview['preview_url']}")
+            else:
+                print("⚠️ DEBUG iTUNES: No se encontró preview para esta canción limpia.")
+
     # Guardar resumen y respuesta
     add_summary_to_conversation(request.user_id, current_conv_id, ai_data['history_summary'])
     add_message_to_conversation(request.user_id, current_conv_id, 'bot', final_response_text)
@@ -142,7 +182,8 @@ async def chat_endpoint(request: ChatRequest):
     return {
         "response": final_response_text,
         "conversation_id": current_conv_id,
-        "spotify_data": spotify_info
+        "spotify_data": spotify_info,
+        "preview_data": audio_preview
     }
 
 @app.get("/history/{user_id}/{conversation_id}")

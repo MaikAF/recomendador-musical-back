@@ -9,6 +9,9 @@ def build_ytmusic_context(user_id: str) -> str:
     # Obtenemos los tokens desde la base de datos (campo auth_data)
     auth_data = get_user_token(user_id)
     
+    print(f"🔍 DEBUG YT: Buscando tokens para ID: {user_id}")
+    print(f"🔍 DEBUG YT: Lo que trajo la BD: {auth_data}")
+
     if not auth_data or "access_token" not in auth_data:
         return "El usuario no tiene una cuenta de YouTube Music vinculada."
 

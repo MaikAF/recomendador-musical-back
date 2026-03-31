@@ -143,7 +143,7 @@ def search_spotify_item(query, type_filter):
 
             # Validación de similitud
             # Si es género/playlist, es menos estricta (0.4). Si es canción/artista, mas estricta (0.6).
-            threshold = 0.4 if type_filter == 'genre' else 0.6
+            threshold = 0.4 
             similarity = similar(query, found_name)
             
             if similarity < threshold:
@@ -167,7 +167,7 @@ def search_spotify_item(query, type_filter):
                 pass # Si no hay imagen, se queda en None
 
             preview_url = item.get('preview_url') if spotify_type == 'track' else None
-            print(f"Encontrado en Spotify: '{found_name}' con similitud {similarity:.2f}. URL: {external_url}, Imagen: {image_url}, Preview: {preview_url}")
+            print(f"Encontrado en Spotify: '{found_name}' con similitud {similarity:.2f}. URL: {external_url}, Imagen: {image_url}")
             return {
                 'url': external_url,
                 'image': image_url,
