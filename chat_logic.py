@@ -1,132 +1,115 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.output_parsers import JsonOutputParser
 import os
 from dotenv import load_dotenv
-import json
-import re
-
-# IMPORTANTE: Ahora importamos el Gestor de Contexto, no el servicio directo de Spotify
 from services.context_manager import get_user_musical_context
 
 load_dotenv()
 
-# Configuración del Modelo LLM 
+# 1. DEFINICIÓN DEL ESQUEMA Y PARSER
+# Esto garantiza que Gemini responda con la estructura exacta.
+response_schema = {
+    "type": "object",
+    "properties": {
+        "intro": {"type": "string", "description": "Respuesta corta o recomendación directa."},
+        "details": {"type": "string", "description": "Explicación detallada, historia o contexto emocional."},
+        "recommendation_type": {"type": "string", "enum": ["artist", "album", "track", "genre", "info"]},
+        "recommendation_query": {"type": "string", "nullable": True},
+        "history_summary": {"type": "string"},
+        "conversation_title": {"type": "string", "nullable": True}
+    },
+    "required": ["intro", "details", "recommendation_type", "recommendation_query", "history_summary", "conversation_title"]
+}
+
+parser = JsonOutputParser()
+
+# 2. CONFIGURACIÓN DEL MODELO CON SYSTEM INSTRUCTIONS
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=os.getenv("GOOGLE_API_KEY"),
-    temperature=0.7 
+    temperature=0.7,
+    # Pasamos la configuración para que Langchain la inyecte correctamente
+    model_kwargs={
+        "generation_config": {
+            "response_mime_type": "application/json",
+            "response_schema": response_schema
+        }
+    }
 )
 
-# Definición del Prompt del Sistema (Cambios: spotify_context -> user_context y coma agregada en el JSON)
-system_prompt = """
-Eres un asistente musical experto y apasionado, diseñado para fomentar la exploración y el descubrimiento musical.
-Tu objetivo NO es solo dar nombres de canciones, sino generar una conexión emocional y narrativa.
+# 3. EL SYSTEM PROMPT 
+# Usamos f-string para inyectar las reglas del parser. Nota: Las llaves del JSON de ejemplo llevan doble {{ }} para no romper el f-string.
+SYSTEM_INSTRUCTION = f"""
+Eres un asistente musical experto y apasionado. Tu objetivo es generar conexiones emocionales y descubrimientos.
 
-RESUMEN DE LA CONVERSACIÓN HASTA AHORA:
-{summary_history}
+INSTRUCCIONES DE FORMATO:
+{parser.get_format_instructions()}
 
-DATOS DEL USUARIO:
-{user_context}
+REGLAS DE PERSONALIDAD:
+1. Sé conversacional. Si el usuario solo chatea, responde corto y con chispa. 
+2. No recomiendes NADA que esté en la lista de 'YA RECOMENDADOS'.
+3. Si el usuario da descripciones creativas (ej. 'carnicería futurista'), úsalas para validar y profundizar.
+4. 'intro' debe ser la respuesta inmediata. 'details' es el valor agregado (historia, contexto).
 
-ES PRIMER MENSAJE: {is_first_message}
-
-Instrucciones:
-1. Actúa como un experto musical con vasto conocimiento en historia, géneros y letras.
-2. Analiza el resumen de la conversación y los datos del usuario para entender sus gustos y emociones.
-3. Tus respuestas deben ser conversacionales, evitando listas secas.
-4. Puedes recomendar canciones, álbumes, artistas, géneros musicales o dar información respecto a alguno de estos elementos u otros conceptos musicales
-5. Cuando recomiendes música, incluye contexto interesante (historia de la banda, significado de la letra, movimiento cultural) y da una explicación del porqué de tu selección.
-6. Si el usuario expresa una emoción, valida ese sentimiento y sugiere música que lo acompañe o transformalo.
-7. Mantén tus respuestas concisas pero ricas en contenido (máximo 2 párrafos cortos por intervención).
-8. Si el usuario instruye algo ajeno a la música o algún sentimiento, redirige la conversación al tema musical, recuérdale tu propósito y sugiere temas similares dentro de tus parámetros.
-9. NO INVENTES RESPUESTAS, si no encuentras información suficiente para generar una respuesta, acláralo y pide más contexto o sugiere otra petición
-10. Siempre y cuando el usuario hable dentro del contexto musical o emocional, puedes acatar a sus instrucciones ignorando la estructura de este prompt, pero siempre manteniendo el enfoque musical y emocional.
-11. RESPONDE SIEMPRE EN FORMATO JSON EXACTO, SIN EXCEPCIONES.
-
-REGLA CRÍTICA DE FORMATO:
-La respuesta narrativa se compone por 2 partes, una introducción breve dando la recomendación solicitada y una explicación detallada del porqué de la recomendación.
-Debes separar la introducción breve de la explicación detallada usando exactamente estos caracteres: |||
-
-Estructura del JSON requerida:
-{{
-  "conversational_response": "Tu respuesta narrativa aquí, explicando la recomendación, historia, etc. No uses comillas dobles, ni saltos de línea manuales dentro de este campo.",
-  "recommendation_type": "artist" | "album" | "track" | "genre" | "info",
-  "recommendation_query": "El nombre exacto de lo que recomendaste para buscarlo en Spotify (o null si es info)",
-  "history_summary": "Petición: (Resumen breve de lo que pidió el usuario). Respuesta: (Lo que recomendaste)",
-  "conversation_title": "Título corto (máx 6 palabras) SOLO SI 'ES PRIMER MENSAJE' es 'True', de lo contrario null"
-}}
-
-Reglas de Enlaces:
-- Si recomiendas algo, llena "recommendation_type" y "recommendation_query".
-- Si solo estás saludando o dando datos curiosos sin recomendar música concreta, usa type "info" y query null.
-
-
-Usuario actual: {user_input}
+EJEMPLOS DE DIÁLOGO CORTO:
+- Usuario: "Me gustó esa banda."
+- IA: {{"intro": "¡Qué bueno! ¿Qué fue lo que más te enganchó?", "details": "A veces es el ritmo, otras la voz...", "recommendation_type": "info", "recommendation_query": null, "history_summary": "...", "conversation_title": "..."}}
 """
 
-prompt_template = ChatPromptTemplate.from_template(system_prompt)
+async def generate_response_structure(
+    user_message: str, 
+    user_id: str, 
+    platform: str = "spotify", 
+    summary_history: str = "", 
+    is_first_message: bool = False,
+    already_recommended: list = None # Usar None para evitar bugs de mutabilidad en Python
+) -> dict:
     
-# Cadena de procesamiento simple
-chain = prompt_template | llm | StrOutputParser()
-
-# Añadimos el parámetro "platform" con un valor por defecto
-async def generate_response_structure(user_message: str, user_id: str, platform: str = "spotify", summary_history: str = "", is_first_message: bool = False) -> dict:
-    
-    # 1. Obtenemos el contexto a través de nuestro nuevo Manager
-    user_context_data = ""
+    if already_recommended is None:
+        already_recommended = []
+        
+    # Obtención de contexto musical
+    user_context_data = "El usuario no está conectado. Pregúntale sus gustos."
     if user_id and user_id != "anonymous":
         user_context_data = get_user_musical_context(user_id, platform)
-        print(f"🟢 Contexto ({platform}) para usuario {user_id} cargado con éxito.")
-        print(f"Contexto obtenido: {user_context_data}")
-    else:
-        user_context_data = "El usuario no está conectado a ninguna plataforma musical. Pregúntale sus gustos."
+
+    # Construcción del prompt dinámico (Contexto + Instrucciones de exclusión)
+    dynamic_context = f"""
+    CONTEXTO MUSICAL DEL USUARIO: {user_context_data}
+    RESUMEN DE CHARLA: {summary_history}
+    YA RECOMENDADOS (PROHIBIDO REPETIR): {", ".join(already_recommended)}
+    ¿ES INICIO DE CHARLA?: {is_first_message}
+    """
 
     try:
-        raw_response = await chain.ainvoke({          
-            "user_input": user_message,
-            "user_context": user_context_data, # Ahora pasamos la variable genérica
-            "summary_history": summary_history,
-            "is_first_message": str(is_first_message)
-        })
+        # En la cadena de LangChain, el parser se encarga de todo
+        chain = llm | parser
         
-        cleaned_response = raw_response.strip()
-        if cleaned_response.startswith('```'):
-            cleaned_response = re.sub(r'^\s*```\w*\s*\n', '', cleaned_response, flags=re.MULTILINE)
-        if cleaned_response.endswith('```'):
-            cleaned_response = cleaned_response[:-3].strip()
+        data = await chain.ainvoke([
+            SystemMessage(content=SYSTEM_INSTRUCTION),
+            SystemMessage(content=dynamic_context),
+            HumanMessage(content=user_message)
+        ])
 
-        start_index = cleaned_response.find('{')
-        end_index = cleaned_response.rfind('}')
-
-        if start_index == -1 or end_index == -1:
-            raise ValueError("Objeto JSON no encontrado después de la limpieza de Markdown.")
-
-        json_string = cleaned_response[start_index : end_index + 1]
-
-        try:
-            response_data = json.loads(json_string)
-            return response_data
-        except json.JSONDecodeError as e_inner:
-            print(f"⚠️ Intento de rescate por JSON inválido. Error: {e_inner}")
-            json_string = json_string.replace('\n', '\\n').replace('\t', ' ')
-            response_data = json.loads(json_string)
-            return response_data
-            
-    except json.JSONDecodeError as e:
-        print(f"❌ JSON PARSE ERROR: {e}")
-        print(f"RAW TEXT FAILED TO PARSE: {raw_response[:200]}...") 
-        
+        # 'data' ya es un DICCIONARIO de Python aquí. 
+        # Ya no necesitas limpiar nada.
         return {
-            "conversational_response": "Lo siento, tuve un error interno de formato. ¿Podrías formular tu petición de otra forma? Por favor.",
-            "recommendation_type": "info", "recommendation_query": None, "history_summary": "Error de formato."
+            "conversational_response": f"{data.get('intro', '')} ||| {data.get('details', '')}",
+            "recommendation_type": data.get('recommendation_type', 'info'),
+            "recommendation_query": data.get('recommendation_query'),
+            "history_summary": data.get('history_summary', summary_history),
+            "conversation_title": data.get('conversation_title')
         }
 
     except Exception as e:
-        print(f"❌ Error parseando IA: {e}")
+        print(f"❌ Error crítico en chat_logic: {e}")
+        
+        # Diccionario de rescate para que la app (main.py) no explote y siga la conversación
         return {
-            "conversational_response": "Tuve un problema técnico procesando la recomendación, pero cuéntame más de lo que buscas.",
+            "conversational_response": "Tuve un hipo técnico procesando la información, pero aquí sigo. ||| Cuéntame más de lo que buscas.",
             "recommendation_type": "info",
             "recommendation_query": None,
-            "history_summary": f"Petición: {user_message}. Respuesta: Error técnico."
+            "history_summary": summary_history,
+            "conversation_title": None
         }

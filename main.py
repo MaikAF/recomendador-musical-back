@@ -84,10 +84,10 @@ def new_chat_endpoint(request: newChatRequest):
     conv_id = create_new_conversation(request.user_id)
     return {"conversation_id": conv_id}
 
+
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     
-
     current_conv_id = request.conversation_id
 
     if not current_conv_id:
@@ -100,8 +100,7 @@ async def chat_endpoint(request: ChatRequest):
     summary_context = get_summary_context(request.user_id, current_conv_id)
     is_new_conversation = (summary_context.strip() == "")
 
-    # NUEVO: Buscar plataforma del usuario en la base de datos
-# Buscar plataforma del usuario en la base de datos
+    # Buscar plataforma del usuario en la base de datos
     user_profile = get_user_profile(request.user_id)
     platform = "none"
     platform_user_id = "anonymous"
@@ -111,50 +110,63 @@ async def chat_endpoint(request: ChatRequest):
         platform_user_id = user_profile.get("platform_user_id", request.user_id)
 
     # --- EL ARREGLO MÁGICO ---
-    # Decidimos qué ID enviarle al Gestor de Contexto según la plataforma
     if platform == "lastfm":
-        # Last.FM necesita el nombre de usuario público (ej: 'duwang_acagar')
         id_for_context = platform_user_id
     else:
-        # Spotify y YouTube necesitan el ID del documento de BD para extraer sus tokens
         id_for_context = request.user_id 
     # -------------------------
 
     print(f"INFO: Procesando chat. BD ID: '{request.user_id}', Plataforma: '{platform}'.")
 
     # Generar estructura con IA
-    ai_data = await generate_response_structure(
+    ai_raw_response = await generate_response_structure(
         user_message=request.message, 
-        user_id=id_for_context, # <--- Usamos la variable inteligente
+        user_id=id_for_context,
         platform=platform, 
         summary_history=summary_context, 
         is_first_message=is_new_conversation
     )
     
-    if ai_data.get("conversation_title"):
-        update_conversation_title(request.user_id, current_conv_id, ai_data["conversation_title"])
+    # --- ADAPTACIÓN PARA EL NUEVO CHAT_LOGIC ---
+    # Normalizamos la respuesta a diccionario, ya sea que venga como modelo Pydantic o dict nativo
+    if hasattr(ai_raw_response, "model_dump"):
+        ai_data = ai_raw_response.model_dump()
+    elif hasattr(ai_raw_response, "dict"):
+        ai_data = ai_raw_response.dict()
+    else:
+        ai_data = ai_raw_response
 
-    final_response_text = ai_data['conversational_response']
+    # Usamos .get() con valores por defecto para evitar KeyErrors si la IA omite campos para ahorrar tokens
+    conv_title = ai_data.get("conversation_title")
+    if conv_title:
+        update_conversation_title(request.user_id, current_conv_id, conv_title)
+
+    final_response_text = ai_data.get('conversational_response', "Hubo un pequeño error procesando la respuesta.")
+    rec_type = ai_data.get('recommendation_type', 'info')
+    rec_query = ai_data.get('recommendation_query', '')
+    history_summary = ai_data.get('history_summary', summary_context)
+    # ------------------------------------------
+
     spotify_info = None
     audio_preview = None
 
     # Lógica de Spotify Link
-    if ai_data['recommendation_type'] != 'info' and ai_data['recommendation_query']:
-        search_result = search_spotify_item(ai_data['recommendation_query'], ai_data['recommendation_type'])
+    if rec_type != 'info' and rec_query:
+        search_result = search_spotify_item(rec_query, rec_type)
         
         if search_result:
             spotify_info = {
                 "url": search_result['url'],
-                "type": ai_data['recommendation_type'],
-                "name": ai_data['recommendation_query'],
+                "type": rec_type,
+                "name": rec_query,
                 "image": search_result.get('image')
             }
         else:
-            final_response_text += f"\n\n(Nota: No encontré el enlace directo en Spotify para '{ai_data['recommendation_query']}', pero vale la pena buscarlo en la web)."
+            final_response_text += f"\n\n(Nota: No encontré el enlace directo en Spotify para '{rec_query}', pero vale la pena buscarlo en la web)."
 
-        if ai_data['recommendation_type'] == 'track':
-    # --- EL FILTRO MÁGICO PARA iTUNES ---
-            raw_query = ai_data['recommendation_query']
+        if rec_type == 'track':
+            # --- EL FILTRO MÁGICO PARA iTUNES ---
+            raw_query = rec_query
             
             # 1. Quitar comillas, la palabra "by", guiones y paréntesis
             clean_query = raw_query.replace('"', '').replace("'", "")
@@ -175,8 +187,8 @@ async def chat_endpoint(request: ChatRequest):
             else:
                 print("⚠️ DEBUG iTUNES: No se encontró preview para esta canción limpia.")
 
-    # Guardar resumen y respuesta
-    add_summary_to_conversation(request.user_id, current_conv_id, ai_data['history_summary'])
+    # Guardar resumen y respuesta usando las variables seguras
+    add_summary_to_conversation(request.user_id, current_conv_id, history_summary)
     add_message_to_conversation(request.user_id, current_conv_id, 'bot', final_response_text)
 
     return {
