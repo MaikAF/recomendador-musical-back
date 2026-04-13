@@ -5,8 +5,7 @@ from database import get_user_token # Asegúrate de importar esto
 
 
 def build_ytmusic_context(user_id: str) -> str:
-    """Extrae y formatea los datos de YouTube Music para el LLM."""
-    # Obtenemos los tokens desde la base de datos (campo auth_data)
+    """Formatea historial de YouTube Music para el LLM."""
     auth_data = get_user_token(user_id)
     
     print(f"🔍 DEBUG YT: Buscando tokens para ID: {user_id}")
@@ -31,7 +30,7 @@ def build_ytmusic_context(user_id: str) -> str:
     return contexto
 
 def build_lastfm_context(username: str) -> str:
-    """Extrae y formatea los datos de Last.FM en texto plano para el LLM."""
+    """Formatea historial de Last.FM para el LLM."""
     data = get_lastfm_user_profile(username)
     
     if not data or "error" in data:
@@ -49,25 +48,21 @@ def build_lastfm_context(username: str) -> str:
     return contexto
 
 def build_spotify_context(user_id: str) -> str:
-    """Extrae y formatea los datos de Spotify."""
+    """Formatea historial de Spotify para el LLM."""
     data = get_spotify_user_data(user_id)
     
     if not data:
         return "El usuario no tiene historial disponible en Spotify."
 
-    # Si tu función ya devolvía un string formateado, lo pasamos directo
     if isinstance(data, str):
         return data
 
-    # Si devuelve un diccionario, lo estructuramos para Gemini
     contexto = "Historial musical del usuario (basado en Spotify):\n"
     
-    # Manejo dinámico asumiendo que data tiene 'top_artists' y 'top_tracks'
     top_artists = data.get('top_artists', [])
     top_tracks = data.get('top_tracks', [])
     
     if top_artists:
-        # Extrae el nombre si es un diccionario, o lo usa directo si es string
         artistas = [a['name'] if isinstance(a, dict) else a for a in top_artists]
         contexto += f"- Artistas más escuchados: {', '.join(artistas)}.\n"
     
@@ -78,9 +73,7 @@ def build_spotify_context(user_id: str) -> str:
     return contexto
 
 def get_user_musical_context(user_id: str, platform: str) -> str:
-    """
-    Router principal de contexto.
-    """
+    """Router principal de contexto."""
     platform = platform.lower()
     
     if platform == 'lastfm':

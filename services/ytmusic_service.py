@@ -2,15 +2,11 @@ import requests
 import os
 
 def get_ytmusic_user_data(access_token: str):
-    """
-    Extrae la actividad musical del usuario desde YouTube Data API v3.
-    Filtra estrictamente los 'Likes' para conservar SOLO los videos musicales.
-    """
+    """Extrae actividad musical desde YouTube Data API."""
     headers = {"Authorization": f"Bearer {access_token}"}
     yt_base_url = "https://www.googleapis.com/youtube/v3"
     
     try:
-        # 1. Obtener las Playlists del usuario
         playlists_res = requests.get(
             f"{yt_base_url}/playlists?part=snippet&mine=true&maxResults=10",
             headers=headers
@@ -22,7 +18,6 @@ def get_ytmusic_user_data(access_token: str):
             for item in playlists_data["items"]:
                 user_playlists.append(item["snippet"]["title"])
 
-        # 2. Obtener videos a los que dio 'Like' (Pedimos 50 para tener margen de filtrado)
         likes_res = requests.get(
             f"{yt_base_url}/videos?part=snippet&myRating=like&maxResults=50",
             headers=headers
@@ -34,11 +29,9 @@ def get_ytmusic_user_data(access_token: str):
             for item in likes_data["items"]:
                 snippet = item.get("snippet", {})
                 
-                # EL FILTRO MÁGICO: categoryId '10' es "Music" en la API de YouTube
                 if snippet.get("categoryId") == "10":
                     liked_songs.append(snippet.get("title"))
                     
-                # Si ya recolectamos 10 canciones puras, nos detenemos para no saturar los tokens de Gemini
                 if len(liked_songs) >= 10:
                     break
 
@@ -52,9 +45,7 @@ def get_ytmusic_user_data(access_token: str):
         return None
 
 def refresh_google_token(refresh_token: str):
-    """
-    Refresca el token de Google cuando expira.
-    """
+    """Refresca token de Google."""
     url = "https://oauth2.googleapis.com/token"
     data = {
         "client_id": os.getenv("GOOGLE_CLIENT_ID"),
@@ -67,21 +58,16 @@ def refresh_google_token(refresh_token: str):
     return response.json()
 
 def check_and_refresh_yt_token(user_id: str):
-    """
-    Verifica si el token de Google sigue siendo válido y lo refresca si es necesario.
-    """
+    """Verifica validez de token Google, refresca según necesidad."""
     from database import get_user_token, update_user_auth_data
     
     auth_data = get_user_token(user_id)
     if not auth_data or "refresh_token" not in auth_data:
         return None
 
-    # En una implementación real, aquí verificarías el timestamp de expiración.
-    # Por ahora, si la API te da un 401, llamarías a esta función:
     new_tokens = refresh_google_token(auth_data["refresh_token"])
     
     if "access_token" in new_tokens:
-        # Actualizamos solo los campos nuevos manteniendo el refresh_token original
         auth_data.update({
             "access_token": new_tokens["access_token"],
             "expires_in": new_tokens.get("expires_in", 3600)

@@ -21,11 +21,10 @@ REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
 SCOPE = "user-read-private user-read-email user-top-read user-read-recently-played"
 
 if not CLIENT_ID:
-    # Esto explotará si no encuentra el archivo .env, lo cual es bueno
     raise ValueError(f"Falta SPOTIFY_CLIENT_ID. Archivo .env buscado en: {env_path}")
 
 def get_spotify_oauth_client():
-    """Devuelve una nueva instancia de SpotifyOAuth limpia y robusta."""    
+    """Devuelve instancia de SpotifyOAuth."""
 
     return SpotifyOAuth(
         client_id=CLIENT_ID,
@@ -40,13 +39,12 @@ def get_spotify_client(access_token):
     return spotipy.Spotify(auth=access_token)
 
 def get_valid_sp_client(user_id):
-    """Recupera el token, lo refresca si es necesario y devuelve el cliente de Spotify listo."""
+    """Recupera token, lo refresca si es necesario y devuelve cliente."""
     token_info = get_user_token(user_id)
     
     if not token_info:
         return None
 
-    # Verificar si el token ha expirado (con un margen de 60 segundos)
     now = int(time.time())
     expires_at = token_info.get('expires_at')
 
@@ -66,7 +64,7 @@ def get_valid_sp_client(user_id):
             if 'refresh_token' not in new_token_info:
                 new_token_info['refresh_token'] = refresh_token
             
-            update_user_auth_data(user_id, new_token_info) # Guardamos el nuevo token
+            update_user_auth_data(user_id, new_token_info)
             print(f"Token refrescado para usuario {user_id}")
             token_info = new_token_info
         except Exception as e:
@@ -76,24 +74,21 @@ def get_valid_sp_client(user_id):
     return spotipy.Spotify(auth=token_info['access_token'])
 
 def get_user_context(user_id):
-    """Descarga los gustos musicales del usuario para dárselos a la IA."""
+    """Descarga preferencias musicales de usuario."""
     sp = get_valid_sp_client(user_id)
     if not sp:
         return "Usuario no conectado a Spotify o sesión expirada."
 
     try:
-        # 1. Obtener Artistas Top (Largo plazo)
         top_artists_data = sp.current_user_top_artists(limit=15, time_range='medium_term')
         top_artists_info = []
         for artist in top_artists_data['items']:
             genres = ', '.join(artist['genres'][:2])
             top_artists_info.append(f"{artist['name']} ({genres})") 
 
-        # 2. Obtener Canciones Recientes (Corto plazo)
         recent_data = sp.current_user_recently_played(limit=10)
         recent_tracks = [f"{item['track']['name']} - {item['track']['artists'][0]['name']}" for item in recent_data['items']]
 
-        # Formatear el texto para el Prompt
         context_str = f"""
         PERFIL DE SPOTIFY:
         - Artistas Top: {', '.join(top_artists_info)}.
@@ -110,23 +105,18 @@ def get_user_context(user_id):
     
 
 def search_spotify_item(query, type_filter):
-    """
-    Busca un elemento en Spotify y devuelve su URL externa.
-    type_filter puede ser: 'artist', 'album', 'track', 'genre' (busca playlist), 'info'
-    """
+    """Busca elemento en Spotify y devuelve su URL externa."""
     if type_filter == 'info' or not query:
         return None
 
-    # Mapeo de tipos para la API de Spotify
     spotify_type = type_filter
     if type_filter == 'genre':
-        spotify_type = 'playlist' # Si es género, buscamos una playlist
+        spotify_type = 'playlist'
         query = f"The Sound of {query}" 
-    elif type_filter == 'song': # A veces la IA dice 'song' en vez de 'track'
+    elif type_filter == 'song':
         spotify_type = 'track'
 
     try:
-        # Configuración del cliente de Spotify
         client_credentials_manager = spotipy.oauth2.SpotifyClientCredentials(
             client_id=os.getenv("SPOTIFY_CLIENT_ID"),
             client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -141,8 +131,6 @@ def search_spotify_item(query, type_filter):
             item = items[0]
             found_name = item['name']
 
-            # Validación de similitud
-            # Si es género/playlist, es menos estricta (0.4). Si es canción/artista, mas estricta (0.6).
             threshold = 0.4 
             similarity = similar(query, found_name)
             
@@ -153,18 +141,15 @@ def search_spotify_item(query, type_filter):
             external_url = item['external_urls']['spotify']
             image_url = None
             
-            # Lógica para extraer imagen según el tipo
             try:
                 if spotify_type == 'track':
-                    # Las canciones tienen la imagen en el álbum
                     if item.get('album') and item['album'].get('images'):
-                        image_url = item['album']['images'][0]['url'] # 0 es la más grande
+                        image_url = item['album']['images'][0]['url']
                 else:
-                    # Artistas, Albumes y Playlists tienen 'images' directo
                     if item.get('images'):
                         image_url = item['images'][0]['url']
             except IndexError:
-                pass # Si no hay imagen, se queda en None
+                pass
 
             preview_url = item.get('preview_url') if spotify_type == 'track' else None
             print(f"Encontrado en Spotify: '{found_name}' con similitud {similarity:.2f}. URL: {external_url}, Imagen: {image_url}")

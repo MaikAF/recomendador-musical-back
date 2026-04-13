@@ -7,9 +7,7 @@ import json
 import hashlib
 
 def hash_user_id_securely(user_id):
-    """
-    Genera un hash anónimo usando una SAL (Salt) secreta.
-    """
+    """Genera hash anónimo para user ID."""
     salt = os.getenv("FEEDBACK_SECRET_SALT", "default_salt_change_me")
     combined_string = f"{user_id}{salt}"
     return hashlib.sha256(combined_string.encode('utf-8')).hexdigest()
@@ -37,10 +35,7 @@ db = firestore.client()
 # ==========================================
 
 def save_or_update_user(user_id: str, platform: str, platform_user_id: str, display_name: str = None, auth_data: dict = None):
-    """
-    Guarda o actualiza la información del usuario de forma agnóstica a la plataforma.
-    Para Last.FM, auth_data será None. Para Spotify, contendrá los tokens.
-    """
+    """Guarda o actualiza la información del usuario."""
     users_ref = db.collection('users').document(user_id)
     
     data_to_save = {
@@ -55,20 +50,17 @@ def save_or_update_user(user_id: str, platform: str, platform_user_id: str, disp
     if auth_data is not None:
         data_to_save["auth_data"] = auth_data
 
-    # merge=True asegura que si el usuario ya existe, no borramos su historial de chats
     users_ref.set(data_to_save, merge=True)
     print(f"Perfil guardado para {user_id} vía {platform}")
 
 def update_user_auth_data(user_id: str, auth_data: dict):
-    """
-    Actualiza SOLO los tokens de autenticación (usado en el refresco automático de Spotify).
-    """
+    """Actualiza tokens de autenticación del usuario."""
     users_ref = db.collection('users').document(user_id)
     users_ref.update({"auth_data": auth_data})
     print(f"Tokens actualizados para {user_id}")
 
 def get_user_profile(user_id):
-    """Recupera la información pública del usuario y su plataforma activa."""
+    """Obtiene perfil público del usuario."""
     doc = db.collection('users').document(user_id).get()
     if doc.exists:
         data = doc.to_dict()
@@ -81,21 +73,17 @@ def get_user_profile(user_id):
     return None
 
 def get_user_token(user_id):
-    """Recupera la data de autenticación anidada (ej. tokens de Spotify)."""
+    """Obtiene data de autenticación."""
     doc = db.collection('users').document(user_id).get()
     if doc.exists:
         return doc.to_dict().get("auth_data")
     return None
 
 def delete_user_session(user_id):
-    """
-    Cierra sesión eliminando el bloque auth_data (si existe).
-    Mantiene el historial de chat para cuando el usuario vuelva a ingresar.
-    """
+    """Cierra sesión eliminando data de autenticación (conservador historial)."""
     user_ref = db.collection('users').document(user_id)
     
     try:
-        # Usamos firestore.DELETE_FIELD para borrar solo el diccionario auth_data
         user_ref.update({
             'auth_data': firestore.DELETE_FIELD
         })
@@ -106,7 +94,7 @@ def delete_user_session(user_id):
         return False
 
 # ==========================================
-# GESTIÓN DE CONVERSACIONES (Sin Cambios Estructurales)
+# GESTIÓN DE CONVERSACIONES
 # ==========================================
 
 def create_new_conversation(user_id):

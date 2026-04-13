@@ -2,28 +2,22 @@ import os
 import json
 from dotenv import load_dotenv
 
-# Importamos la función de tu servicio
-# Asumiendo que test.py está en la raíz de 'backend' y el servicio en 'app/services/'
 try:
     from services.lastfm_service import get_lastfm_user_profile
 except ImportError:
-    # Si pusiste test.py en la misma carpeta que el servicio, usamos importación directa
     from services.lastfm_service import get_lastfm_user_profile
 
 def test_lastfm():
     print("Cargando variables de entorno...")
     load_dotenv()
     
-    # Verificamos que la llave esté cargada antes de consultar
     if not os.getenv("LASTFM_API_KEY"):
         print("🔴 ERROR: No se encontró LASTFM_API_KEY en el archivo .env")
         return
 
-    # Usaremos el usuario 'rj' (Richard Jones, fundador de Last.fm) como prueba por defecto,
-    # ya que siempre tiene scrobbles públicos, pero puedes poner el tuyo.
     test_username = input("Ingresa un usuario de Last.FM para probar (presiona Enter para usar 'rj'): ")
     if not test_username.strip():
-        test_username = "duwang_acagar"
+        test_username = "rj"
 
     print(f"\n🔍 Consultando el perfil de: '{test_username}'...")
     

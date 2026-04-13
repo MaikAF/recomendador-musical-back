@@ -2,10 +2,7 @@ import requests
 import urllib.parse
 
 def search_itunes_preview(query: str):
-    """
-    Función idéntica a la de tu servicio, pero con prints de diagnóstico.
-    """
-    # Codificamos la búsqueda
+    """Replicación del servicio con prints de diagnóstico."""
     safe_query = urllib.parse.quote(query)
     url = f"https://itunes.apple.com/search?term={safe_query}&entity=song&limit=1"
     
@@ -14,7 +11,6 @@ def search_itunes_preview(query: str):
     try:
         response = requests.get(url, timeout=5)
         
-        # Verificamos si la respuesta HTTP es correcta (200 OK)
         if response.status_code != 200:
             print(f"🔴 ERROR HTTP {response.status_code}: {response.text}")
             return None

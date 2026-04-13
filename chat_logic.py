@@ -7,8 +7,7 @@ from services.context_manager import get_user_musical_context
 
 load_dotenv()
 
-# 1. DEFINICIÓN DEL ESQUEMA Y PARSER
-# Esto garantiza que Gemini responda con la estructura exacta.
+# Esquema de respuesta y parser JSON
 response_schema = {
     "type": "object",
     "properties": {
@@ -24,12 +23,11 @@ response_schema = {
 
 parser = JsonOutputParser()
 
-# 2. CONFIGURACIÓN DEL MODELO CON SYSTEM INSTRUCTIONS
+# Configuración del modelo LLM
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
     google_api_key=os.getenv("GOOGLE_API_KEY"),
     temperature=0.7,
-    # Pasamos la configuración para que Langchain la inyecte correctamente
     model_kwargs={
         "generation_config": {
             "response_mime_type": "application/json",
@@ -38,8 +36,7 @@ llm = ChatGoogleGenerativeAI(
     }
 )
 
-# 3. EL SYSTEM PROMPT 
-# Usamos f-string para inyectar las reglas del parser. Nota: Las llaves del JSON de ejemplo llevan doble {{ }} para no romper el f-string.
+# Prompt del sistema
 SYSTEM_INSTRUCTION = f"""
 Eres un asistente musical experto y apasionado. Tu objetivo es generar conexiones emocionales y descubrimientos.
 
@@ -63,18 +60,18 @@ async def generate_response_structure(
     platform: str = "spotify", 
     summary_history: str = "", 
     is_first_message: bool = False,
-    already_recommended: list = None # Usar None para evitar bugs de mutabilidad en Python
+    already_recommended: list = None
 ) -> dict:
     
     if already_recommended is None:
         already_recommended = []
         
-    # Obtención de contexto musical
+    # Contexto musical de usuario
     user_context_data = "El usuario no está conectado. Pregúntale sus gustos."
     if user_id and user_id != "anonymous":
         user_context_data = get_user_musical_context(user_id, platform)
 
-    # Construcción del prompt dinámico (Contexto + Instrucciones de exclusión)
+    # Prompt dinámico
     dynamic_context = f"""
     CONTEXTO MUSICAL DEL USUARIO: {user_context_data}
     RESUMEN DE CHARLA: {summary_history}
@@ -83,7 +80,6 @@ async def generate_response_structure(
     """
 
     try:
-        # En la cadena de LangChain, el parser se encarga de todo
         chain = llm | parser
         
         data = await chain.ainvoke([
@@ -92,8 +88,6 @@ async def generate_response_structure(
             HumanMessage(content=user_message)
         ])
 
-        # 'data' ya es un DICCIONARIO de Python aquí. 
-        # Ya no necesitas limpiar nada.
         return {
             "conversational_response": f"{data.get('intro', '')} ||| {data.get('details', '')}",
             "recommendation_type": data.get('recommendation_type', 'info'),
@@ -105,7 +99,6 @@ async def generate_response_structure(
     except Exception as e:
         print(f"❌ Error crítico en chat_logic: {e}")
         
-        # Diccionario de rescate para que la app (main.py) no explote y siga la conversación
         return {
             "conversational_response": "Tuve un hipo técnico procesando la información, pero aquí sigo. ||| Cuéntame más de lo que buscas.",
             "recommendation_type": "info",
