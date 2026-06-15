@@ -206,3 +206,23 @@ def save_feedback(user_id, feedback_data):
     }
     feedback_ref.set(data_to_save)
     return user_hash
+
+# ==========================================
+# GESTIÓN DE RECOMENDACIONES
+# ==========================================
+
+def save_user_recommendation(user_id: str, rec_type: str, name: str):
+    """
+    Almacena una recomendación y su tipo para un usuario en Firestore.
+    
+    Estructura: users/{userId}/recommendations/{recommendationId}
+    """
+    rec_ref = db.collection('users').document(user_id).collection('recommendations').document()
+    data_to_save = {
+        'type': rec_type,
+        'name': name,
+        'timestamp': datetime.now()
+    }
+    rec_ref.set(data_to_save)
+    print(f"Recomendación guardada para el usuario {user_id}: {name} ({rec_type})")
+    return rec_ref.id
